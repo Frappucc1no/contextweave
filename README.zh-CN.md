@@ -1,0 +1,308 @@
+# ContextWeave
+
+> 🧭 面向长周期项目的连续性 skill。  
+> 把项目的关键状态固定下来，让 AI 在下次继续时更快进入正确上下文。
+
+[English](./README.md) · 简体中文（审阅稿）
+
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
+[![Package Version](https://img.shields.io/badge/package-0.1.0-111827)](./package-metadata.json)
+[![Protocol Version](https://img.shields.io/badge/protocol-1.0-0f766e)](./package-metadata.json)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./package-metadata.json)
+
+**关键词：** AI Agent、项目连续性、跨会话记忆、项目状态管理、project continuity、context harness、session continuity
+
+## ✨ 项目简介
+
+`ContextWeave` 是一个面向长周期项目的连续性 skill。  
+它不试图把所有内容都塞进长期记忆，而是只固定真正关键的项目状态，让 AI 在跨会话、跨天、跨工具继续同一个项目时，仍然能快速知道：
+
+- 这个项目是什么
+- 现在什么是真的
+- 已经发生过哪些关键进展
+- 接下来最值得做什么
+
+它的价值不在于“多一层记忆”，而在于把项目连续性从临时会话里抽离出来，变成一组稳定的项目资产。
+
+## 🎯 它适合什么场景
+
+`ContextWeave` 更适合以下情况：
+
+- 同一个项目需要持续几天、几周推进
+- 经常切换不同会话、不同工具、不同 agent
+- 项目一长，当前状态、历史过程和背景信息开始混在一起
+- 上次已经确认过的结论，这次又要重新解释一遍
+
+当前更贴近的三类典型场景：
+
+- 研究写作
+- 产品文档协作
+- 软件项目协调与持续推进
+
+## 🚀 它解决什么问题
+
+很多 AI Agent 在第一次开始工作时表现良好，但项目一旦进入持续推进阶段，通常会暴露出一类稳定问题：
+
+- 过几天回来，又要重讲项目背景
+- 当前状态和历史过程混在一起，越推进越乱
+- 不同工具、不同会话对“项目现在到哪一步了”形成不同理解
+- 已经讨论过的重要判断，没有被正式沉淀下来
+
+`ContextWeave` 不追求成为通用记忆数据库，它要解决的是：
+
+> 用一套轻量文件结构，把项目连续性真正固定下来。
+
+## 🧠 为什么它更接近 harness 范式
+
+如果只把问题理解为“上下文如何组织”，重点通常会落在：
+
+- prompt 怎么组织
+- 当前会话里给模型什么信息
+- memory 怎么裁剪或追加
+
+`ContextWeave` 处理的是更靠后的问题：
+
+> 当一个项目要持续几天、几周推进时，如何让 AI 的工作状态稳定存在，而不是每次重新拼装一轮上下文。
+
+这也是它更接近轻量 harness 的原因。这里的 `harness` 不是重型代理平台，而是具备最小系统性的连续性层。
+
+当前已经具备三类典型特征：
+
+### 1. 有正式状态面
+
+项目连续性不是只留在会话里，而是有明确状态文件与机器可读 contract，例如：
+
+- `config.json`
+- `state.json`
+- managed file markers
+
+### 2. 有恢复路径
+
+它不是“读几份文件试试看”，而是围绕恢复形成一条清晰链路：
+
+- 发现项目是否启用连续性系统
+- 读取最小必要状态
+- 判断当前状态是否可信
+- 必要时再完整恢复
+
+### 3. 有写入门禁
+
+当前 `0.1.0` 已经包含：
+
+- revision-aware helper
+- write lock
+- atomic replace
+- rollback / fail-closed 倾向
+
+因此它不只是文档模板，而更像一个以 skill 形态交付的轻量项目连续性 harness。
+
+## 📌 一个常见使用场景
+
+假设你正在推进一份 PRD、研究项目，或者一个软件改造任务：
+
+- 第一天，你和 AI 梳理方向和关键判断
+- 第二天，你回来继续推进，不想再从头讲背景
+- 第三天，你换了一个工具继续工作
+- 第四天，你只想快速知道“现在什么是真的、下一步该做什么”
+
+`ContextWeave` 在这里承担的作用很明确：
+
+- 用一份文件固定项目的稳定 framing
+- 用一份文件固定当前状态
+- 用按日期组织的方式保留重要里程碑
+
+这样在后续继续工作时，AI 是在一个已存在的项目状态上推进，而不是重新猜测。
+
+## 🗂️ 一眼看懂核心结构
+
+`ContextWeave` 把项目连续性拆成三层：
+
+```mermaid
+flowchart TD
+    A["这个项目是什么"] --> B["现在什么是真的"] --> C["哪些重要事情已经发生过"]
+    A1["context_brief.md"] --> A
+    B1["rolling_summary.md"] --> B
+    C1["daily_logs/YYYY-MM-DD.md"] --> C
+```
+
+### `context_brief.md`
+
+固定稳定 framing，例如：
+
+- 项目目标
+- 当前阶段
+- source of truth
+- 关键边界与约束
+
+### `rolling_summary.md`
+
+固定当前状态，例如：
+
+- 当前成立的事实
+- 当前稳定判断
+- 风险与未决问题
+- 下一步
+
+### `daily_logs/YYYY-MM-DD.md`
+
+保留里程碑证据，例如：
+
+- 已完成工作
+- 关键决定
+- 已确认事实
+- 阻塞与建议下一步
+
+## 🔒 它为什么不只是“几份项目文件”
+
+`ContextWeave` 虽然是文件驱动的，但它并不是“手工维护几份 markdown”这么简单。  
+当前 `0.1.0` 已经包含：
+
+- `config.json`：工作区配置真源
+- `state.json`：机器状态真源
+- machine-readable contract
+- revision-aware commit / append helper
+- project-scoped write lock
+- rollback / fail-closed 倾向
+
+这意味着它已经不只是文档模板，而是一个带正式边界的连续性系统。
+
+## 🏁 安装
+
+### 推荐方式
+
+如果当前环境支持 [skills.sh](https://skills.sh/docs/cli) 这一类 Skills CLI，可直接安装：
+
+```bash
+npx skills add https://github.com/Frappucc1no/contextweave
+```
+
+### 目录式接入
+
+如果当前工具采用目录式 skills，保留整个仓库目录并接入对应的 skills 目录即可。不要只复制 `SKILL.md`。
+
+```bash
+cp -R /path/to/contextweave /path/to/<skills-dir>/contextweave
+
+# 或
+ln -s /absolute/path/to/contextweave /path/to/<skills-dir>/contextweave
+```
+
+### 常见环境
+
+| 环境 | 接入方式 |
+|---|---|
+| Skills CLI 生态 | `npx skills add https://github.com/Frappucc1no/contextweave` |
+| Codex | 接入 `.agents/skills/contextweave` |
+| Claude Code | 接入 `~/.claude/skills/contextweave` 或 `.claude/skills/contextweave` |
+| 其他目录式环境 | 将整个目录接入该工具的 skills 目录 |
+
+Codex 项目级接入示例：
+
+```bash
+mkdir -p .agents/skills
+ln -s /absolute/path/to/contextweave .agents/skills/contextweave
+```
+
+Claude Code 用户级接入示例：
+
+```bash
+mkdir -p ~/.claude/skills/contextweave
+rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
+```
+
+## 📦 仓库结构
+
+这个仓库本身就是 skill 包根目录：
+
+```text
+contextweave/
+├── SKILL.md
+├── README.md
+├── USAGE.md
+├── package-metadata.json
+├── profiles/
+├── references/
+├── scripts/
+├── LICENSE
+└── NOTICE
+```
+
+安装和分发时，应将整个目录作为一个 skill 包处理。
+
+## 🔄 它如何帮助 AI 持续不跑偏
+
+```mermaid
+flowchart TD
+    A["发现项目已启用 ContextWeave"] --> B["读取最小必要连续性状态"]
+    B --> C["判断当前状态是否足够可信"]
+    C --> D["需要时再做完整恢复"]
+    D --> E["准备写入前重新 preflight"]
+    E --> F["通过 helper 安全写入"]
+```
+
+这条链路的重点：
+
+- 先恢复
+- 再判断
+- 真正写入前再过安全门
+
+这也是它和“多写几份项目文件”的差异所在。
+
+## 🧩 它和平台原生 memory 的关系
+
+`ContextWeave` 不应被理解成平台原生 memory、compact、resume 的替代品。
+
+更准确的分工是：
+
+- 平台能力更偏运行时上下文管理
+- `ContextWeave` 更偏项目级、文件级、可审计的连续性真源
+
+如果用一句话区分：
+
+> 平台能力更像“当前会话怎么继续”，`ContextWeave` 更像“这个项目的持续状态如何稳定存在”。
+
+## 🧪 当前项目状态
+
+`ContextWeave` 当前处于早期公开发布阶段。
+
+当前可以明确的是：
+
+- 已形成 `0.1.0` 正式发布基线
+- 核心结构、协议边界与 helper 行为已经比较清晰
+- 已具备作为独立 skill 包公开分发和试用的基本条件
+- 仍在持续演进中
+- 还没有在大量复杂、长期、真实项目中完成充分验证
+
+这个项目并不是来自一个成熟软件团队的长期产品化研发流程。  
+它更接近一个由独立作者在真实使用 AI 持续推进项目时，围绕“跨会话连续性”问题反复试验、快速迭代，并在大量 vibe coding 式实践中逐步长出来的开源产物。
+
+这也意味着它当前的优势和边界都比较鲜明：
+
+- 优势在于问题意识明确、结构收口快、核心需求集中
+- 边界在于它仍然处于早期阶段，还没有经过大规模复杂项目的长期验证
+
+在后续演进上，项目仍会围绕“项目连续性”这条主线继续增强，例如：
+
+- 让连续性恢复更自然
+- 让当前状态的判断与复用更稳定
+- 让高频工作流入口更清楚
+- 围绕任务与信息捕获形成更完整的扩展层
+
+因此更合理的预期是：
+
+> 它已经足够成为一个值得试用、值得继续演化的连续性 skill，但还不是一个已经完全打磨成熟的大而全产品。
+
+## ✅ 当前版本信息
+
+当前正式信息：
+
+- package version: `0.1.0`
+- protocol version: `1.0`
+- supported protocol versions: `1.0`
+- minimum Python version: `3.10`
+- supported workspace languages: `en`, `zh-CN`
+
+## 📄 许可证
+
+本项目当前使用 Apache License 2.0。  
+详见 [LICENSE](./LICENSE) 与 [NOTICE](./NOTICE)。
