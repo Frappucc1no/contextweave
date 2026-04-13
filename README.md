@@ -3,7 +3,7 @@
 > 🧭 A continuity skill for long-running projects.  
 > Keep the key state of a project stable, so AI can re-enter the right context faster the next time work resumes.
 
-[简体中文](./README.zh-CN.md) · English
+English · [简体中文](./README.zh-CN.md)
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Package Version](https://img.shields.io/badge/package-0.1.0-111827)](./package-metadata.json)
