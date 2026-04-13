@@ -3,7 +3,7 @@
 > 🧭 面向长周期项目的连续性 skill。  
 > 把项目的关键状态固定下来，让 AI 在下次继续时更快进入正确上下文。
 
-English · [简体中文](./README.zh-CN.md)
+[English](./README.md) · 简体中文
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Package Version](https://img.shields.io/badge/package-0.1.0-111827)](./package-metadata.json)
