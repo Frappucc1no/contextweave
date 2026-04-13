@@ -1,7 +1,8 @@
 # ContextWeave
 
-> 🧭 A continuity skill for long-running projects.  
-> Keep the key state of a project stable, so AI can re-enter the right context faster the next time work resumes.
+> 🧭 A continuity skill for long-running projects.
+>
+> `ContextWeave` keeps the key state of a project stable, so AI can re-enter the right context faster the next time work resumes.
 
 English · [简体中文](./README.zh-CN.md)
 
@@ -10,29 +11,42 @@ English · [简体中文](./README.zh-CN.md)
 [![Protocol Version](https://img.shields.io/badge/protocol-1.0-0f766e)](./package-metadata.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./package-metadata.json)
 
-**Keywords:** AI agents, project continuity, cross-session memory, project state management, project continuity, context harness, session continuity
+**Keywords:** AI agents, project continuity, cross-session memory, project state management, project continuity, session continuity, context harness
 
-## ✨ What It Is
+## ✨ Why It Matters
 
-`ContextWeave` is a continuity skill for long-running projects.  
-It does not try to push everything into permanent memory. Instead, it captures only the project state that actually matters, so AI can still answer these questions quickly when work resumes across sessions, days, or tools:
+A lot of AI workflows feel strong on day one, then start to drift as soon as the project stretches into day two, day three, and beyond:
+
+- background has to be explained again after every pause
+- current state and past process collapse into one messy stream
+- different sessions, tools, or agents develop different understandings of the same project
+- important conclusions were discussed, but never made durable
+
+`ContextWeave` is built for exactly that class of problem.
+
+It does not try to remember everything. Instead, it preserves only the project state that actually matters, so AI can still answer these questions quickly when work resumes:
 
 - What is this project?
 - What is true right now?
 - What important progress has already happened?
 - What is most worth doing next?
 
-Its value is not “one more memory layer.”  
-Its value is turning project continuity into a stable set of project assets instead of leaving it inside transient conversations.
+## 🚀 What You Get
+
+- **Less repetition** — stop restating the same project background every time a session resumes
+- **Clearer current state** — framing, live state, and milestone evidence stay separated
+- **Lower drift across tools and sessions** — different agents can align to the same project state more easily
+- **A real continuity layer** — not just markdown templates, but state, recovery, and write gates
+- **Auditable project memory** — continuity stays in project files instead of disappearing into a private platform memory system
 
 ## 🎯 When It Fits Best
 
 `ContextWeave` is a better fit when:
 
-- one project spans days or weeks
+- one project spans multiple days or weeks
 - you switch between sessions, tools, or agents
-- current state, history, and framing start to blur together over time
-- decisions that were already made need to be re-explained again later
+- the project depends on repeatedly answering “what is true now?”
+- you do not want project continuity to depend only on the current chat window
 
 The current package is especially aligned with three project shapes:
 
@@ -40,19 +54,49 @@ The current package is especially aligned with three project shapes:
 - product document collaboration
 - software project coordination and ongoing delivery
 
-## 🚀 What Problem It Solves
+## 🏁 Quick Start
 
-Many AI agents look strong at the start of a task, but once a project becomes long-running, the same class of problems tends to appear:
+### Recommended: environments with Skills CLI support
 
-- project background has to be explained again after a pause
-- current state and historical process collapse into one messy stream
-- different tools or sessions drift toward different understandings of where the project stands
-- important conclusions were discussed, but never formalized
+If your environment supports a [skills.sh](https://skills.sh/docs/cli)-style Skills CLI, install with:
 
-`ContextWeave` does not try to become a general memory database.  
-What it does instead is simple and specific:
+```bash
+npx skills add https://github.com/Frappucc1no/contextweave
+```
 
-> use a lightweight file structure to make project continuity durable.
+### General: directory-based integration
+
+If your tool uses directory-based skills, keep the full repository intact and mount it into the appropriate skills directory. Do not copy only `SKILL.md`.
+
+```bash
+cp -R /path/to/contextweave /path/to/<skills-dir>/contextweave
+
+# or
+ln -s /absolute/path/to/contextweave /path/to/<skills-dir>/contextweave
+```
+
+### Common environments
+
+| Environment | Integration method |
+|---|---|
+| Skills CLI ecosystems | `npx skills add https://github.com/Frappucc1no/contextweave` |
+| Codex | mount into `.agents/skills/contextweave` |
+| Claude Code | mount into `~/.claude/skills/contextweave` or `.claude/skills/contextweave` |
+| Other directory-based environments | mount the full directory into that tool's skills path |
+
+Example project-level install for Codex:
+
+```bash
+mkdir -p .agents/skills
+ln -s /absolute/path/to/contextweave .agents/skills/contextweave
+```
+
+Example user-level install for Claude Code:
+
+```bash
+mkdir -p ~/.claude/skills/contextweave
+rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
+```
 
 ## 🧠 Why This Is Closer to a Harness Pattern
 
@@ -62,14 +106,13 @@ If the problem is framed only as “how should context be organized,” the focu
 - what the model sees in the current session
 - how memory is trimmed or appended
 
-`ContextWeave` tackles a downstream problem:
+`ContextWeave` addresses a downstream problem:
 
-> when a project runs across days or weeks, how do you make the working state of that project persist, instead of rebuilding a fresh context bundle every time?
+> when a project continues across days or weeks, how do you make that working state persist instead of rebuilding a fresh context bundle every time?
 
-That is why it is better described as a lightweight harness layer.  
-Here, `harness` does **not** mean a heavy autonomous agent platform. It means a minimal but structured continuity layer.
+That is why it is better described as a lightweight harness layer. Here, `harness` does **not** mean a heavy autonomous agent platform. It means a minimal but structured continuity layer.
 
-It already shows three typical harness-style properties:
+The current package already shows three typical harness-style properties:
 
 ### 1. A formal state surface
 
@@ -81,7 +124,7 @@ Project continuity does not live only in the chat window. It also lives in expli
 
 ### 2. A recovery path
 
-This is not “read a few files and hope it works.” There is a deliberate flow around recovery:
+This is not “read a few files and hope it works.” There is a clear recovery flow:
 
 - detect whether the project uses a continuity system
 - read the minimum viable state
@@ -97,24 +140,24 @@ The current `0.1.0` line already includes:
 - atomic replace
 - rollback / fail-closed behavior
 
-So this is not just a document template pack. It is better understood as a lightweight project continuity harness delivered as a skill.
+That makes it more than a document template pack. It is better understood as a lightweight project continuity harness delivered as a skill.
 
 ## 📌 A Common Scenario
 
 Imagine you are working on a PRD, a research project, or a software change:
 
-- On day 1, you and AI establish the direction and key judgments.
+- On day 1, you and AI establish direction and key judgments.
 - On day 2, you return and do not want to restate all the background.
 - On day 3, you continue in a different tool.
 - On day 4, you just want to know what is true now and what should happen next.
 
-`ContextWeave` handles that by doing three simple things:
+`ContextWeave` handles that with three simple moves:
 
 - one file keeps the stable framing
 - one file keeps the current state
 - dated logs keep important milestone evidence
 
-That makes later work feel like continuing from an existing project state instead of guessing the project from scratch again.
+That makes later work feel like continuing from an existing project state instead of guessing the project from scratch.
 
 ## 🗂️ Core Structure at a Glance
 
@@ -169,50 +212,6 @@ The current `0.1.0` line already includes:
 
 That makes it a continuity system with formal boundaries, not just a documentation template.
 
-## 🏁 Installation
-
-### Recommended path
-
-If your environment supports [skills.sh](https://skills.sh/docs/cli)-style Skills CLI workflows, install with:
-
-```bash
-npx skills add https://github.com/Frappucc1no/contextweave
-```
-
-### Directory-based integration
-
-If your tool uses directory-based skills, keep the entire repository intact and mount it into the appropriate skills directory. Do not copy only `SKILL.md`.
-
-```bash
-cp -R /path/to/contextweave /path/to/<skills-dir>/contextweave
-
-# or
-ln -s /absolute/path/to/contextweave /path/to/<skills-dir>/contextweave
-```
-
-### Common environments
-
-| Environment | Integration method |
-|---|---|
-| Skills CLI ecosystems | `npx skills add https://github.com/Frappucc1no/contextweave` |
-| Codex | mount into `.agents/skills/contextweave` |
-| Claude Code | mount into `~/.claude/skills/contextweave` or `.claude/skills/contextweave` |
-| Other directory-based environments | mount the full directory into that tool's skills path |
-
-Example project-level install for Codex:
-
-```bash
-mkdir -p .agents/skills
-ln -s /absolute/path/to/contextweave .agents/skills/contextweave
-```
-
-Example user-level install for Claude Code:
-
-```bash
-mkdir -p ~/.claude/skills/contextweave
-rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
-```
-
 ## 📦 Repository Layout
 
 This repository root is the skill package root:
@@ -230,7 +229,7 @@ contextweave/
 └── NOTICE
 ```
 
-For installation and distribution, treat the whole directory as a single skill package.
+For installation and distribution, treat the full directory as a single skill package.
 
 ## 🔄 How It Helps AI Stay Aligned
 
@@ -243,7 +242,7 @@ flowchart TD
     E --> F["Write through the helpers safely"]
 ```
 
-The point of this flow is straightforward:
+This flow exists to do three things well:
 
 - restore first
 - judge second
@@ -251,7 +250,7 @@ The point of this flow is straightforward:
 
 That is the difference between `ContextWeave` and “just keeping a few project notes.”
 
-## 🧩 Relationship to Platform Memory Features
+## 🧩 Relationship to Platform-Native Memory
 
 `ContextWeave` should not be read as a replacement for platform-native memory, compaction, or resume features.
 
