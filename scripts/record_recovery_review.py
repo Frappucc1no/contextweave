@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""Record a prepared recovery review for a staged ContextWeave recovery proposal."""
+
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from _common import (
+    ConfigContractError,
+    EnvironmentContractError,
+    ensure_supported_python_version,
+    exit_with_cli_error,
+    find_contextweave_root,
+    LockBusyError,
+    now_iso_timestamp,
+    read_text,
+    RECOVERY_PROPOSAL_FILE_RE,
+    StorageResolutionError,
+    text_digest,
+    validate_recovery_review_text,
+    workspace_write_lock,
+    write_text,
+)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Record a recovery review for a staged ContextWeave recovery proposal."
+    )
+    parser.add_argument("path", nargs="?", default=".", help="Project path or a descendant path.")
+    parser.add_argument(
+        "--proposal-file",
+        required=True,
+        help="Proposal filename or path. Relative values are resolved against companion/recovery/proposals/ first.",
+    )
+    parser.add_argument("--source-file", required=True, help="Path to prepared review markdown content.")
+    parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
+    return parser
+
+
+def resolve_proposal_path(raw_value: str, proposals_dir: Path, project_root: Path) -> Path:
+    candidate = Path(raw_value).expanduser()
+    if candidate.is_absolute():
+        return candidate.resolve()
+
+    proposal_relative = proposals_dir / raw_value
+    if proposal_relative.exists():
+        return proposal_relative.resolve()
+
+    project_relative = project_root / raw_value
+    return project_relative.resolve()
+
+
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    try:
+        ensure_supported_python_version()
+    except EnvironmentContractError as exc:
+        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+
+    source_path = Path(args.source_file).expanduser().resolve()
+    if not source_path.is_file():
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=f"Source file does not exist: {source_path}",
+        )
+    try:
+        body_text = read_text(source_path)
+    except (OSError, UnicodeDecodeError) as exc:
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=f"Filesystem error: {exc}",
+        )
+    if not body_text.strip():
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=f"Source file is empty: {source_path}",
+        )
+    review_errors = validate_recovery_review_text(body_text)
+    if review_errors:
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message="Invalid recovery review content:\n- " + "\n- ".join(review_errors),
+        )
+
+    try:
+        workspace = find_contextweave_root(args.path)
+    except (StorageResolutionError, ConfigContractError) as exc:
+        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+    if workspace is None:
+        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No ContextWeave project root found.")
+
+    proposals_dir = workspace.storage_root / "companion" / "recovery" / "proposals"
+    review_log_dir = workspace.storage_root / "companion" / "recovery" / "review_log"
+    archive_dir = workspace.storage_root / "companion" / "recovery" / "archive"
+
+    proposal_path = resolve_proposal_path(args.proposal_file, proposals_dir, workspace.project_root)
+    if not proposal_path.is_file():
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=f"Proposal file does not exist: {proposal_path}",
+        )
+    if proposal_path.parent != proposals_dir.resolve():
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=(
+                "Proposal file must live under companion/recovery/proposals/: "
+                f"{proposal_path}"
+            ),
+        )
+    if not RECOVERY_PROPOSAL_FILE_RE.match(proposal_path.name):
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=(
+                "Proposal filename does not match the expected recovery proposal shape: "
+                f"{proposal_path.name}"
+            ),
+        )
+
+    review_path = review_log_dir / f"{proposal_path.stem}.review.md"
+
+    try:
+        with workspace_write_lock(workspace.project_root, "record_recovery_review.py"):
+            review_log_dir.mkdir(parents=True, exist_ok=True)
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            if review_path.exists():
+                exit_with_cli_error(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=f"Refusing to overwrite an existing recovery review: {review_path}",
+                )
+            write_text(review_path, body_text.rstrip("\n") + "\n")
+    except LockBusyError as exc:
+        exit_with_cli_error(parser, json_mode=args.json, exit_code=3, message=str(exc))
+    except (OSError, UnicodeDecodeError) as exc:
+        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+
+    payload = {
+        "ok": True,
+        "proposal_path": str(proposal_path),
+        "review_path": str(review_path),
+        "source_file": str(source_path),
+        "source_digest": text_digest(body_text),
+        "recorded_at": now_iso_timestamp(),
+    }
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(f"Recorded recovery review: {review_path}")
+
+
+if __name__ == "__main__":
+    main()

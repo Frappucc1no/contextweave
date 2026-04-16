@@ -17,14 +17,87 @@ import tempfile
 from typing import Iterable
 
 PROTOCOL_VERSION_RE = re.compile(r"^[0-9]+\.[0-9]+(?:\.[0-9]+)*$")
+RECOVERY_PROPOSAL_FILE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[A-Za-z0-9._-]+\.md$")
+REVIEW_RECORD_FILE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[A-Za-z0-9._-]+\.review\.md$")
+MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(?P<title>.*?)\s*$")
+HEADING_NUMBER_PREFIX_RE = re.compile(r"^\s*[0-9]+(?:\.[0-9]+)*[.)、:：-]?\s*")
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 METADATA_PATH = PACKAGE_ROOT / "package-metadata.json"
+MANAGED_ASSETS_OVERRIDE_ENV = "CONTEXTWEAVE_MANAGED_ASSETS_PATH"
+DEFAULT_MANAGED_ASSETS_PATH = PACKAGE_ROOT / "managed-assets.json"
+MANAGED_ASSETS_PATH = Path(os.environ.get(MANAGED_ASSETS_OVERRIDE_ENV, str(DEFAULT_MANAGED_ASSETS_PATH))).expanduser().resolve()
 CONTEXT_DIRNAME = ".contextweave"
 VISIBLE_DIRNAME = "contextweave"
 DEFAULT_STORAGE_MODE = "hidden"
 VISIBLE_STORAGE_MODE = "visible"
 SUPPORTED_STORAGE_MODES = {DEFAULT_STORAGE_MODE, VISIBLE_STORAGE_MODE}
+SUPPORTED_DYNAMIC_ASSET_RULE_KINDS = {"iso_daily_log", "recovery_proposal", "review_record"}
+RECOVERY_PROPOSAL_REQUIRED_HEADINGS = (
+    ("来源摘要", "source summary"),
+    ("来源类型与可信级别", "source type and confidence"),
+    ("候选当前状态事实", "candidate current-state facts"),
+    ("候选里程碑事件", "candidate milestone events"),
+    ("候选判断反转", "candidate judgment reversals"),
+    ("候选下一步变化", "candidate next-step changes"),
+    ("与当前 sidecar 的冲突", "conflicts with current sidecar"),
+    ("建议提升动作", "suggested promotion actions"),
+    ("审阅结论", "review conclusion"),
+)
+RECOVERY_REVIEW_REQUIRED_HEADINGS = (
+    ("proposal reference", "提案引用"),
+    ("review outcome", "审阅结论"),
+    ("approved items", "通过项"),
+    ("rejected items", "拒绝项"),
+    ("promotion status", "提升状态"),
+    ("next action", "下一步"),
+)
+RECOVERY_REVIEW_HINT_MARKERS = (
+    "hint-only",
+    "hint only",
+    "kept as hint",
+    "retain as hint",
+    "no items remain hint-only",
+    "保留为 hint",
+    "仅保留为 hint",
+    "只保留为 hint",
+    "无 hint",
+)
+RECOVERY_PROMOTION_TARGET_MARKERS = (
+    "rolling_summary.md",
+    "context_brief.md",
+    "daily_logs/",
+    "daily_logs\\",
+    "daily log",
+)
+UPDATE_PROTOCOL_TIME_POLICY_KEYWORDS = (
+    "workday",
+    "logical workday",
+    "work day",
+    "active day",
+    "rollover",
+    "rollover_hour",
+    "timezone",
+    "time zone",
+    "cross-day",
+    "cross day",
+    "append target",
+    "append date",
+    "start new day",
+    "close day",
+    "yesterday",
+    "today",
+    "工作日",
+    "逻辑工作日",
+    "时区",
+    "跨天",
+    "追加日期",
+    "追加日志日期",
+    "关闭昨天",
+    "开启新的一天",
+    "昨天",
+    "今天",
+)
 
 
 def load_package_metadata() -> dict:
@@ -34,6 +107,8 @@ def load_package_metadata() -> dict:
         raise RuntimeError(f"Missing package metadata file: {METADATA_PATH}") from exc
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"Malformed package metadata file: {METADATA_PATH}") from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"Package metadata file is not valid UTF-8: {METADATA_PATH}") from exc
 
     required = {
         "package_name",
@@ -93,7 +168,204 @@ def load_package_metadata() -> dict:
     return payload
 
 
-PACKAGE_METADATA = load_package_metadata()
+def _load_relative_path_list(payload: dict, *, field: str, source_path: Path) -> list[str]:
+    value = payload.get(field)
+    if not isinstance(value, list):
+        raise RuntimeError(f"{field} must be a list: {source_path}")
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise RuntimeError(f"{field} must contain non-empty strings: {source_path}")
+        normalized_item = PurePosixPath(item.strip()).as_posix()
+        if normalized_item in {".", ""} or normalized_item.startswith("../") or normalized_item.startswith("/"):
+            raise RuntimeError(f"{field} contains an invalid relative path '{item}': {source_path}")
+        if normalized_item in seen:
+            raise RuntimeError(f"{field} contains a duplicate path '{normalized_item}': {source_path}")
+        seen.add(normalized_item)
+        normalized.append(normalized_item)
+    return normalized
+
+
+def markdown_heading_titles(text: str) -> list[str]:
+    headings: list[str] = []
+    for line in text.splitlines():
+        match = MARKDOWN_HEADING_RE.match(line)
+        if not match:
+            continue
+        title = HEADING_NUMBER_PREFIX_RE.sub("", match.group("title").strip())
+        title = title.strip().strip(":：-").strip()
+        if title:
+            headings.append(title.casefold())
+    return headings
+
+
+def missing_recovery_headings(text: str, heading_groups: tuple[tuple[str, ...], ...]) -> list[str]:
+    headings = set(markdown_heading_titles(text))
+    missing: list[str] = []
+    for group in heading_groups:
+        normalized_group = {item.casefold() for item in group}
+        if headings.isdisjoint(normalized_group):
+            missing.append(group[0])
+    return missing
+
+
+def validate_recovery_proposal_text(text: str) -> list[str]:
+    errors: list[str] = []
+    if not text.strip():
+        return ["Recovery proposal content is empty."]
+
+    missing = missing_recovery_headings(text, RECOVERY_PROPOSAL_REQUIRED_HEADINGS)
+    if missing:
+        errors.append(
+            "Recovery proposal is missing required sections: "
+            + ", ".join(missing)
+        )
+
+    lowered = text.casefold()
+    if not any(marker.casefold() in lowered for marker in RECOVERY_PROMOTION_TARGET_MARKERS):
+        errors.append(
+            "Recovery proposal must explicitly name at least one promotion target such as "
+            "rolling_summary.md, context_brief.md, or daily_logs/."
+        )
+
+    return errors
+
+
+def validate_recovery_review_text(text: str) -> list[str]:
+    errors: list[str] = []
+    if not text.strip():
+        return ["Recovery review content is empty."]
+
+    missing = missing_recovery_headings(text, RECOVERY_REVIEW_REQUIRED_HEADINGS)
+    if missing:
+        errors.append(
+            "Recovery review is missing required sections: "
+            + ", ".join(missing)
+        )
+
+    lowered = text.casefold()
+    if not any(marker.casefold() in lowered for marker in RECOVERY_REVIEW_HINT_MARKERS):
+        errors.append(
+            "Recovery review must explicitly record hint-only handling, even if the conclusion is that no items remain hint-only."
+        )
+
+    return errors
+
+
+def detect_update_protocol_time_policy_cues(text: str) -> list[str]:
+    lowered = text.casefold()
+    return [keyword for keyword in UPDATE_PROTOCOL_TIME_POLICY_KEYWORDS if keyword.casefold() in lowered]
+
+
+def load_managed_assets_metadata() -> dict:
+    try:
+        payload = json.loads(MANAGED_ASSETS_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Missing managed assets file: {MANAGED_ASSETS_PATH}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Malformed managed assets file: {MANAGED_ASSETS_PATH}") from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError(f"Managed assets file is not valid UTF-8: {MANAGED_ASSETS_PATH}") from exc
+
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"Managed assets file must be a JSON object: {MANAGED_ASSETS_PATH}")
+
+    required = {
+        "version",
+        "required_files",
+        "optional_files",
+        "required_directories",
+        "managed_directories",
+        "dynamic_file_rules",
+    }
+    missing = sorted(required.difference(payload.keys()))
+    if missing:
+        raise RuntimeError(
+            f"Managed assets file is missing required fields {missing}: {MANAGED_ASSETS_PATH}"
+        )
+
+    version = payload["version"]
+    if not isinstance(version, int) or version < 1:
+        raise RuntimeError(f"Managed assets version must be a positive integer: {MANAGED_ASSETS_PATH}")
+
+    required_files = _load_relative_path_list(payload, field="required_files", source_path=MANAGED_ASSETS_PATH)
+    optional_files = _load_relative_path_list(payload, field="optional_files", source_path=MANAGED_ASSETS_PATH)
+    required_directories = _load_relative_path_list(
+        payload, field="required_directories", source_path=MANAGED_ASSETS_PATH
+    )
+    managed_directories = _load_relative_path_list(
+        payload, field="managed_directories", source_path=MANAGED_ASSETS_PATH
+    )
+    required_file_set = set(required_files)
+    optional_file_set = set(optional_files)
+    required_directory_set = set(required_directories)
+    managed_directory_set = set(managed_directories)
+    all_directory_set = required_directory_set | managed_directory_set
+
+    overlap = sorted(required_file_set.intersection(optional_file_set))
+    if overlap:
+        raise RuntimeError(
+            f"required_files and optional_files must be disjoint, found {overlap}: {MANAGED_ASSETS_PATH}"
+        )
+
+    file_directory_overlap = sorted((required_file_set | optional_file_set).intersection(all_directory_set))
+    if file_directory_overlap:
+        raise RuntimeError(
+            "managed asset file paths and directory paths must be disjoint, found "
+            f"{file_directory_overlap}: {MANAGED_ASSETS_PATH}"
+        )
+
+    dynamic_rules = payload["dynamic_file_rules"]
+    if not isinstance(dynamic_rules, list):
+        raise RuntimeError(f"dynamic_file_rules must be a list: {MANAGED_ASSETS_PATH}")
+    normalized_rules: list[dict[str, str]] = []
+    seen_rules: set[tuple[str, str]] = set()
+    for item in dynamic_rules:
+        if not isinstance(item, dict):
+            raise RuntimeError(f"dynamic_file_rules must contain objects: {MANAGED_ASSETS_PATH}")
+        base_dir = item.get("base_dir")
+        kind = item.get("kind")
+        if not isinstance(base_dir, str) or not base_dir.strip():
+            raise RuntimeError(f"dynamic_file_rules.base_dir must be a non-empty string: {MANAGED_ASSETS_PATH}")
+        if not isinstance(kind, str) or kind not in SUPPORTED_DYNAMIC_ASSET_RULE_KINDS:
+            raise RuntimeError(
+                "dynamic_file_rules.kind must be one of "
+                f"{sorted(SUPPORTED_DYNAMIC_ASSET_RULE_KINDS)}: {MANAGED_ASSETS_PATH}"
+            )
+        normalized_base_dir = PurePosixPath(base_dir.strip()).as_posix()
+        if normalized_base_dir in {".", ""} or normalized_base_dir.startswith("../") or normalized_base_dir.startswith("/"):
+            raise RuntimeError(
+                f"dynamic_file_rules contains an invalid base_dir '{base_dir}': {MANAGED_ASSETS_PATH}"
+            )
+        if normalized_base_dir not in all_directory_set:
+            raise RuntimeError(
+                "dynamic_file_rules.base_dir must reference a declared required_directories or managed_directories entry, "
+                f"got '{normalized_base_dir}': {MANAGED_ASSETS_PATH}"
+            )
+        rule_key = (normalized_base_dir, kind)
+        if rule_key in seen_rules:
+            raise RuntimeError(
+                f"dynamic_file_rules contains a duplicate rule {rule_key}: {MANAGED_ASSETS_PATH}"
+            )
+        seen_rules.add(rule_key)
+        normalized_rules.append({"base_dir": normalized_base_dir, "kind": kind})
+
+    return {
+        "version": version,
+        "required_files": required_files,
+        "optional_files": optional_files,
+        "required_directories": required_directories,
+        "managed_directories": managed_directories,
+        "dynamic_file_rules": normalized_rules,
+    }
+
+
+try:
+    PACKAGE_METADATA = load_package_metadata()
+    MANAGED_ASSETS_METADATA = load_managed_assets_metadata()
+except RuntimeError as exc:
+    raise SystemExit(str(exc))
 PACKAGE_NAME = PACKAGE_METADATA["package_name"]
 DISPLAY_NAME = PACKAGE_METADATA["display_name"]
 PACKAGE_VERSION = PACKAGE_METADATA["package_version"]
@@ -103,6 +375,11 @@ MINIMUM_PYTHON_VERSION = PACKAGE_METADATA["minimum_python_version"]
 MINIMUM_PYTHON_VERSION_PARTS = tuple(int(part) for part in MINIMUM_PYTHON_VERSION.split("."))
 DEFAULT_WORKSPACE_LANGUAGE = PACKAGE_METADATA["supported_workspace_languages"][0]
 SUPPORTED_WORKSPACE_LANGUAGES = set(PACKAGE_METADATA["supported_workspace_languages"])
+MANAGED_ASSET_REQUIRED_FILES = tuple(MANAGED_ASSETS_METADATA["required_files"])
+MANAGED_ASSET_OPTIONAL_FILES = tuple(MANAGED_ASSETS_METADATA["optional_files"])
+MANAGED_ASSET_REQUIRED_DIRECTORIES = tuple(MANAGED_ASSETS_METADATA["required_directories"])
+MANAGED_ASSET_DIRECTORIES = tuple(MANAGED_ASSETS_METADATA["managed_directories"])
+MANAGED_ASSET_DYNAMIC_RULES = tuple(MANAGED_ASSETS_METADATA["dynamic_file_rules"])
 
 FILE_KEYS = {
     "config": "config.json",
@@ -111,6 +388,18 @@ FILE_KEYS = {
     "rolling_summary": "rolling_summary.md",
     "update_protocol": "update_protocol.md",
 }
+
+
+def is_required_storage_file(rel_path: str) -> bool:
+    return PurePosixPath(rel_path).as_posix() in MANAGED_ASSET_REQUIRED_FILES
+
+
+def is_optional_storage_file(rel_path: str) -> bool:
+    return PurePosixPath(rel_path).as_posix() in MANAGED_ASSET_OPTIONAL_FILES
+
+
+def is_required_storage_directory(rel_path: str) -> bool:
+    return PurePosixPath(rel_path).as_posix() in MANAGED_ASSET_REQUIRED_DIRECTORIES
 
 SECTION_KEYS = {
     "context_brief": ["mission", "current_phase", "source_of_truth", "core_workflow", "boundaries"],
@@ -336,8 +625,11 @@ class LockBusyError(RuntimeError):
 
 
 def normalize_start_path(raw_path: str | Path) -> Path:
-    path = Path(raw_path).expanduser().resolve()
-    return path.parent if path.is_file() else path
+    try:
+        path = Path(raw_path).expanduser().resolve()
+        return path.parent if path.is_file() else path
+    except OSError as exc:
+        raise StorageResolutionError(f"Failed to resolve start path {raw_path}: {exc}") from exc
 
 
 def ensure_supported_python_version() -> None:
@@ -452,7 +744,7 @@ def project_lock_path(project_root: Path) -> Path:
 def load_lock_payload(lock_path: Path) -> dict:
     try:
         data = json.loads(read_text(lock_path))
-    except (FileNotFoundError, json.JSONDecodeError):
+    except (FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError, OSError):
         return {}
     return data if isinstance(data, dict) else {}
 
@@ -601,6 +893,8 @@ def load_workspace_state(path: Path) -> dict:
         raise ConfigContractError(f"Missing state file: {path}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigContractError(f"Malformed JSON in state file: {path}") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigContractError(f"State file is not valid UTF-8: {path}") from exc
     if not isinstance(data, dict):
         raise ConfigContractError(f"State file must contain a JSON object: {path}")
     required = {
@@ -791,6 +1085,10 @@ def load_and_validate_config(
         raise ConfigContractError(f"Missing config file: {path}") from exc
     except json.JSONDecodeError as exc:
         raise ConfigContractError(f"Malformed JSON in config file: {path}") from exc
+    except UnicodeDecodeError as exc:
+        raise ConfigContractError(f"Config file is not valid UTF-8: {path}") from exc
+    except OSError as exc:
+        raise ConfigContractError(f"Config file is not readable: {path} ({exc})") from exc
 
     if not isinstance(data, dict):
         raise ConfigContractError(f"Config file must contain a JSON object: {path}")
@@ -1158,10 +1456,15 @@ def detect_workspace(
     visible_root = visible_storage_root(project_root)
     visible_config = visible_root / FILE_KEYS["config"]
 
-    hidden_exists = hidden_config.is_file()
-    visible_exists = visible_config.is_file()
-    hidden_damaged = damaged_sidecar_reason(project_root, hidden_root, DEFAULT_STORAGE_MODE)
-    visible_damaged = damaged_sidecar_reason(project_root, visible_root, VISIBLE_STORAGE_MODE)
+    try:
+        hidden_exists = hidden_config.is_file()
+        visible_exists = visible_config.is_file()
+        hidden_damaged = damaged_sidecar_reason(project_root, hidden_root, DEFAULT_STORAGE_MODE)
+        visible_damaged = damaged_sidecar_reason(project_root, visible_root, VISIBLE_STORAGE_MODE)
+    except OSError as exc:
+        raise ConfigContractError(
+            f"Failed to inspect ContextWeave storage roots under {project_root}: {exc}"
+        ) from exc
 
     if hidden_exists and visible_exists:
         raise StorageResolutionError(
@@ -1476,6 +1779,25 @@ def latest_active_daily_log(logs_dir: Path) -> Path | None:
     return active[-1]
 
 
+def continuity_confidence_level(
+    *,
+    workspace_valid: bool,
+    summary_revision_is_stale: bool,
+    workspace_artifact_is_newer: bool | None,
+    latest_daily_log_exists: bool,
+) -> str:
+    if not workspace_valid:
+        return "broken"
+    artifact_newer = bool(workspace_artifact_is_newer)
+    if (summary_revision_is_stale and not latest_daily_log_exists) or (
+        artifact_newer and not latest_daily_log_exists
+    ):
+        return "low"
+    if summary_revision_is_stale or artifact_newer or not latest_daily_log_exists:
+        return "medium"
+    return "high"
+
+
 def daily_log_sequence_error(entries: list[DailyLogEntryInfo]) -> str | None:
     if not entries:
         return "Missing required daily-log-entry metadata marker."
@@ -1574,21 +1896,53 @@ def detect_root_entry_files(project_root: Path) -> list[Path]:
 
 
 def known_storage_assets(storage_root: Path) -> set[Path]:
-    return {
-        storage_root / "config.json",
-        storage_root / "state.json",
-        storage_root / "context_brief.md",
-        storage_root / "rolling_summary.md",
-        storage_root / "update_protocol.md",
-        storage_root / "daily_logs",
-        storage_root / "daily_logs" / "archive",
-    }
+    assets: set[Path] = set()
+    for rel_path in [
+        *MANAGED_ASSET_REQUIRED_FILES,
+        *MANAGED_ASSET_OPTIONAL_FILES,
+        *MANAGED_ASSET_REQUIRED_DIRECTORIES,
+        *MANAGED_ASSET_DIRECTORIES,
+    ]:
+        assets.add(storage_root / PurePosixPath(rel_path))
+    return assets
+
+
+def known_storage_asset_kind_map(storage_root: Path) -> dict[Path, str]:
+    asset_kinds: dict[Path, str] = {}
+    for rel_path in [*MANAGED_ASSET_REQUIRED_FILES, *MANAGED_ASSET_OPTIONAL_FILES]:
+        asset_kinds[storage_root / PurePosixPath(rel_path)] = "file"
+    for rel_path in MANAGED_ASSET_REQUIRED_DIRECTORIES:
+        asset_kinds[storage_root / PurePosixPath(rel_path)] = "directory"
+    for rel_path in MANAGED_ASSET_DIRECTORIES:
+        asset_kinds[storage_root / PurePosixPath(rel_path)] = "directory"
+    return asset_kinds
+
+
+def _matches_dynamic_storage_asset_rule(path: Path, storage_root: Path) -> bool:
+    if not path.is_file():
+        return False
+    for rule in MANAGED_ASSET_DYNAMIC_RULES:
+        base_dir = storage_root / PurePosixPath(rule["base_dir"])
+        if path.parent != base_dir:
+            continue
+        kind = rule["kind"]
+        if kind == "iso_daily_log" and DATE_FILE_RE.match(path.name):
+            try:
+                parse_iso_date(path.stem)
+            except ValueError:
+                continue
+            return True
+        if kind == "recovery_proposal" and RECOVERY_PROPOSAL_FILE_RE.match(path.name):
+            return True
+        if kind == "review_record" and REVIEW_RECORD_FILE_RE.match(path.name):
+            return True
+    return False
 
 
 def unknown_storage_assets(storage_root: Path) -> list[Path]:
     if not storage_root.is_dir():
         return []
-    known = known_storage_assets(storage_root)
+    known = known_storage_asset_kind_map(storage_root)
     unknown: list[Path] = []
 
     for path in sorted(storage_root.rglob("*")):
@@ -1596,23 +1950,13 @@ def unknown_storage_assets(storage_root: Path) -> list[Path]:
             continue
         if is_official_temp_storage_asset(path, storage_root):
             continue
-        if path in known:
+        expected_kind = known.get(path)
+        if expected_kind == "file" and path.is_file():
             continue
-        if path.is_file():
-            if path.parent == storage_root / "daily_logs" and DATE_FILE_RE.match(path.name):
-                try:
-                    parse_iso_date(path.stem)
-                except ValueError:
-                    pass
-                else:
-                    continue
-            if path.parent == storage_root / "daily_logs" / "archive" and DATE_FILE_RE.match(path.name):
-                try:
-                    parse_iso_date(path.stem)
-                except ValueError:
-                    pass
-                else:
-                    continue
+        if expected_kind == "directory" and path.is_dir():
+            continue
+        if _matches_dynamic_storage_asset_rule(path, storage_root):
+            continue
         unknown.append(path)
 
     return unknown
@@ -1628,20 +1972,25 @@ def is_official_temp_storage_asset(path: Path, storage_root: Path) -> bool:
         return False
 
     if path.parent == storage_root:
-        return candidate_name in {
-            "config.json",
-            "state.json",
-            "context_brief.md",
-            "rolling_summary.md",
-            "update_protocol.md",
-        }
+        for rel_path in [*MANAGED_ASSET_REQUIRED_FILES, *MANAGED_ASSET_OPTIONAL_FILES]:
+            rel = PurePosixPath(rel_path)
+            if rel.parent.as_posix() in {".", ""} and rel.name == candidate_name:
+                return True
 
-    if path.parent in {storage_root / "daily_logs", storage_root / "daily_logs" / "archive"}:
-        if DATE_FILE_RE.match(candidate_name):
+    for rule in MANAGED_ASSET_DYNAMIC_RULES:
+        base_dir = storage_root / PurePosixPath(rule["base_dir"])
+        if path.parent != base_dir:
+            continue
+        kind = rule["kind"]
+        if kind == "iso_daily_log" and DATE_FILE_RE.match(candidate_name):
             try:
                 parse_iso_date(Path(candidate_name).stem)
             except ValueError:
                 return False
+            return True
+        if kind == "recovery_proposal" and RECOVERY_PROPOSAL_FILE_RE.match(candidate_name):
+            return True
+        if kind == "review_record" and REVIEW_RECORD_FILE_RE.match(candidate_name):
             return True
 
     return False

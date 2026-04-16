@@ -83,11 +83,15 @@ For protocol `1.0`, supported workspace languages are limited to `en` and `zh-CN
 
 1. Find the project root.
 2. Read `STORAGE_ROOT/config.json`.
-3. If `STORAGE_ROOT/update_protocol.md` exists, read it before applying default read order.
-4. Read `STORAGE_ROOT/context_brief.md`.
-5. Read `STORAGE_ROOT/rolling_summary.md`.
-6. Read the latest active daily log, unless `update_protocol.md` defines a narrower read rule.
-7. Run a quick freshness check before trusting older context.
+3. Read `STORAGE_ROOT/state.json`.
+4. Read `STORAGE_ROOT/rolling_summary.md`.
+5. If `STORAGE_ROOT/update_protocol.md` exists, surface it before expanding beyond the minimum continuity set.
+6. Read `STORAGE_ROOT/context_brief.md` only when the current task needs framing, scope, source-of-truth, or phase context that the summary does not already cover.
+7. Read the latest active daily log only when milestone evidence, workday judgment, or external-writer reconciliation requires it.
+8. Run a quick freshness check before trusting older context or before a major write.
+
+Cold start should restore and judge first.
+It should not automatically continue `next_step` or execute project work just because continuity files were read.
 
 See `references/operation-playbooks.md` for the full flow.
 

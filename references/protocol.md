@@ -134,6 +134,59 @@ Do not place unrelated project files inside:
 - `PROJECT_ROOT/.contextweave/`
 - `PROJECT_ROOT/contextweave/`
 
+For the current `0.2.0` release line on protocol `1.0`, the package-level declaration source for managed storage-root assets is:
+
+- `contextweave/managed-assets.json`
+
+Tools should use that declaration source, together with the core protocol rules in this document, to decide which optional managed namespaces and dynamic file patterns are valid.
+
+This allows the protocol to stay explicit while avoiding repeated hard-coded path lists across helpers.
+
+### Optional managed namespaces
+
+Protocol `1.0` continues to center on the core managed assets:
+
+- `config.json`
+- `state.json`
+- `context_brief.md`
+- `rolling_summary.md`
+- `daily_logs/`
+- `update_protocol.md`
+
+For the current `0.2.0` release line, one additional optional managed namespace is recognized:
+
+- `STORAGE_ROOT/companion/`
+
+This namespace is:
+
+- ContextWeave-managed
+- optional
+- reserved for intermediate or workflow-layer assets that do not replace core truth files
+
+This namespace is not:
+
+- a second storage root
+- a free-form user scratch directory
+- a place for unrelated project files
+
+When a workspace has not enabled companion-backed features, the absence of `STORAGE_ROOT/companion/` must not be treated as damage or incompleteness.
+
+Current recognized subtree in this `0.2.0` release line:
+
+- `STORAGE_ROOT/companion/recovery/`
+
+This subtree is for:
+
+- recovery proposals
+- review records
+- archived recovery artifacts
+
+This subtree is not for:
+
+- replacing `rolling_summary.md`, `daily_logs/`, or `context_brief.md`
+- keeping arbitrary project notes
+- turning companion into a second truth layer
+
 `state.json` is the machine-readable sidecar state source for:
 
 - workspace revision
@@ -218,7 +271,7 @@ The protocol therefore prefers:
 - append-only milestone logs
 - explicit reconciliation when other writers may exist
 
-For packaged helper writes in the current `0.1.0` release line, ContextWeave also uses:
+For packaged helper writes in the current `0.2.0` release line, ContextWeave also uses:
 
 - project-scoped write locking
 - revision-aware commits for overwrite-style files
@@ -439,7 +492,7 @@ ContextWeave also uses managed block boundaries for two integration surfaces:
 
 ### Supported root entry files for thin bridges
 
-Current supported root entry files for the current `0.1.0` release line:
+Current supported root entry files for the current `0.2.0` release line:
 
 - `AGENTS.md`
 - `CLAUDE.md`

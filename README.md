@@ -1,227 +1,251 @@
 # ContextWeave
 
-> 🧭 A continuity skill for long-running projects.
->
-> `ContextWeave` keeps the key state of a project stable, so AI can re-enter the right context faster the next time work resumes.
+> A file-native continuity layer for long-running AI projects.
+
+`ContextWeave` keeps the important state of a project durable, reviewable, and reusable across sessions, tools, and agents.
 
 English · [简体中文](./README.zh-CN.md)
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
-[![Package Version](https://img.shields.io/badge/package-0.1.0-111827)](./package-metadata.json)
 [![Protocol Version](https://img.shields.io/badge/protocol-1.0-0f766e)](./package-metadata.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./package-metadata.json)
 
-**Keywords:** AI agents, project continuity, cross-session memory, project state management, project continuity, session continuity, context harness
+## What It Is
 
-## ✨ Why It Matters
+`ContextWeave` is built for projects that continue over time.
 
-A lot of AI workflows feel strong on day one, then start to drift as soon as the project stretches into day two, day three, and beyond:
+Instead of depending on one chat window or one platform's private memory, it keeps a small, explicit project state inside the workspace itself.
 
-- background has to be explained again after every pause
-- current state and past process collapse into one messy stream
-- different sessions, tools, or agents develop different understandings of the same project
-- important conclusions were discussed, but never made durable
-
-`ContextWeave` is built for exactly that class of problem.
-
-It does not try to remember everything. Instead, it preserves only the project state that actually matters, so AI can still answer these questions quickly when work resumes:
+That project state is designed to answer four practical questions quickly:
 
 - What is this project?
 - What is true right now?
 - What important progress has already happened?
-- What is most worth doing next?
+- What should happen next?
 
-## 🚀 What You Get
+## What The Current Version Adds
 
-- **Less repetition** — stop restating the same project background every time a session resumes
-- **Clearer current state** — framing, live state, and milestone evidence stay separated
-- **Lower drift across tools and sessions** — different agents can align to the same project state more easily
-- **A real continuity layer** — not just markdown templates, but state, recovery, and write gates
-- **Auditable project memory** — continuity stays in project files instead of disappearing into a private platform memory system
+The current `0.2.0` version extends the original `0.1.0` continuity model without replacing it.
 
-## 🎯 When It Fits Best
+The direction is:
 
-`ContextWeave` is a better fit when:
+- safer cold starts
+- smaller default reads
+- clearer continuity confidence
+- recommendation-first workday handling
+- history-assisted recovery through reviewed proposals
+- a minimal companion namespace inside the sidecar
 
-- one project spans multiple days or weeks
-- you switch between sessions, tools, or agents
-- the project depends on repeatedly answering “what is true now?”
-- you do not want project continuity to depend only on the current chat window
+The upgrade is intentionally conservative:
 
-The current package is especially aligned with three project shapes:
+- it does **not** introduce a second storage root
+- it does **not** silently auto-write project state
+- it does **not** ship executable `/cw-*` commands
+- it does **not** turn companion data into the new source of truth
 
-- research writing
-- product document collaboration
-- software project coordination and ongoing delivery
+## Product Model
 
-## 🏁 Quick Start
+The current model has three layers.
 
-### Recommended: environments with Skills CLI support
+### 1. Core continuity
 
-If your environment supports a [skills.sh](https://skills.sh/docs/cli)-style Skills CLI, install with:
+This is the durable project truth.
 
-```bash
-npx skills add https://github.com/Frappucc1no/contextweave
-```
+- `context_brief.md`
+- `rolling_summary.md`
+- `daily_logs/YYYY-MM-DD.md`
 
-### General: directory-based integration
+### 2. Ambient continuity
 
-If your tool uses directory-based skills, keep the full repository intact and mount it into the appropriate skills directory. Do not copy only `SKILL.md`.
+This is the read-and-judge layer.
 
-```bash
-cp -R /path/to/contextweave /path/to/<skills-dir>/contextweave
+It helps a session:
 
-# or
-ln -s /absolute/path/to/contextweave /path/to/<skills-dir>/contextweave
-```
+- detect that the project already uses ContextWeave
+- read the smallest useful continuity set first
+- judge whether the current continuity is still trustworthy
+- recommend what needs review next
 
-### Common environments
+### 3. Minimal companion foundation
 
-| Environment | Integration method |
-|---|---|
-| Skills CLI ecosystems | `npx skills add https://github.com/Frappucc1no/contextweave` |
-| Codex | mount into `.agents/skills/contextweave` |
-| Claude Code | mount into `~/.claude/skills/contextweave` or `.claude/skills/contextweave` |
-| Other directory-based environments | mount the full directory into that tool's skills path |
+This is the smallest workflow layer around the core.
 
-Example project-level install for Codex:
+It currently exists to:
 
-```bash
-mkdir -p .agents/skills
-ln -s /absolute/path/to/contextweave .agents/skills/contextweave
-```
+- hold recovery proposals
+- hold review records
+- keep those intermediate assets inside the sidecar without polluting core truth files
 
-Example user-level install for Claude Code:
+It does **not** currently mean:
 
-```bash
-mkdir -p ~/.claude/skills/contextweave
-rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
-```
+- a full task system
+- a full inbox system
+- a command runtime
 
-## 🧠 Why This Is Closer to a Harness Pattern
+## What It Does Well
 
-If the problem is framed only as “how should context be organized,” the focus usually stays on:
+- keeps stable framing separate from current state
+- keeps current state separate from milestone evidence
+- gives sessions a real continuity surface to resume from
+- makes project continuity auditable in workspace files
+- reduces drift between sessions, tools, and agents
+- adds guardrails around formal writes
 
-- how prompts are structured
-- what the model sees in the current session
-- how memory is trimmed or appended
+## What It Does Not Try To Do
 
-`ContextWeave` addresses a downstream problem:
+`ContextWeave` is not:
 
-> when a project continues across days or weeks, how do you make that working state persist instead of rebuilding a fresh context bundle every time?
+- a general-purpose memory server
+- a replacement for every platform-native memory feature
+- a heavy autonomous agent framework
+- a full task management product
+- a silent auto-documentation machine
 
-That is why it is better described as a lightweight harness layer. Here, `harness` does **not** mean a heavy autonomous agent platform. It means a minimal but structured continuity layer.
+The goal is narrower:
 
-The current package already shows three typical harness-style properties:
+> keep the right project state durable and make future sessions easier to resume safely
 
-### 1. A formal state surface
+## Safety And Compatibility
 
-Project continuity does not live only in the chat window. It also lives in explicit state files and machine-readable structure, including:
+The current `0.2.0` version is designed as a safe extension of `0.1.0`, not a reset.
+
+That means:
+
+- healthy `0.1.0` workspaces should continue to work
+- new sidecar assets stay optional
+- `companion/` should appear only when companion-backed features are actually used
+- older projects should not be forced to rebuild their sidecar just to stay valid
+
+If you are upgrading from `0.1.0`, see:
+
+- the repository-level `2026-04-16-contextweave-0.1.0-to-v0.2.0-migration-and-rollback-note.md` when you are reviewing the full source checkout
+
+## Core Files
+
+The storage root remains one of:
+
+- `PROJECT_ROOT/.contextweave/`
+- `PROJECT_ROOT/contextweave/`
+
+Inside that root, the core continuity model remains:
 
 - `config.json`
 - `state.json`
-- managed file markers
+- `context_brief.md`
+- `rolling_summary.md`
+- `daily_logs/`
+- `update_protocol.md`
 
-### 2. A recovery path
+The current `0.2.0` version also recognizes an optional managed namespace:
 
-This is not “read a few files and hope it works.” There is a clear recovery flow:
+- `STORAGE_ROOT/companion/`
 
-- detect whether the project uses a continuity system
-- read the minimum viable state
-- decide whether that state is still trustworthy
-- do a fuller restore only when needed
+Current intended subtree:
 
-### 3. Write gates
+- `STORAGE_ROOT/companion/recovery/`
 
-The current `0.1.0` line already includes:
+This is for:
 
-- revision-aware helpers
-- write locking
-- atomic replace
-- rollback / fail-closed behavior
+- recovery proposals
+- review records
+- archived recovery artifacts
 
-That makes it more than a document template pack. It is better understood as a lightweight project continuity harness delivered as a skill.
+It is not a free-form scratch folder.
 
-## 📌 A Common Scenario
+## Managed Asset Registry
 
-Imagine you are working on a PRD, a research project, or a software change:
+The current package also ships:
 
-- On day 1, you and AI establish direction and key judgments.
-- On day 2, you return and do not want to restate all the background.
-- On day 3, you continue in a different tool.
-- On day 4, you just want to know what is true now and what should happen next.
+- `managed-assets.json`
 
-`ContextWeave` handles that with three simple moves:
+This file is the package-level declaration source for:
 
-- one file keeps the stable framing
-- one file keeps the current state
-- dated logs keep important milestone evidence
+- required managed files
+- optional managed files
+- required managed directories
+- managed directories
+- supported dynamic file patterns
+- optional managed namespaces
 
-That makes later work feel like continuing from an existing project state instead of guessing the project from scratch.
+That keeps helper behavior and validation rules aligned as the sidecar grows.
 
-## 🗂️ Core Structure at a Glance
+## Cold Start Behavior
 
-`ContextWeave` separates project continuity into three layers:
+The current cold-start direction is:
 
-```mermaid
-flowchart TD
-    A["What the project is"] --> B["What is true now"] --> C["What important things have happened"]
-    A1["context_brief.md"] --> A
-    B1["rolling_summary.md"] --> B
-    C1["daily_logs/YYYY-MM-DD.md"] --> C
-```
+1. find the project root
+2. read the minimum continuity set first
+3. expand only when the task really needs more context
+4. judge freshness before formal writes
+5. recommend before executing
 
-### `context_brief.md`
+In practice this means:
 
-Stores stable framing such as:
+- start from `config.json`, `state.json`, and `rolling_summary.md`
+- review `update_protocol.md` when local rules matter
+- read `context_brief.md` only when framing is needed
+- read the latest active daily log only when milestone evidence or workday judgment needs it
 
-- project goal
-- current phase
-- source of truth
-- stable boundaries and constraints
+The important product behavior is:
 
-### `rolling_summary.md`
+> restoring context should not automatically continue unfinished work
 
-Stores the current-state snapshot such as:
+## Workday Recommendation
 
-- currently valid facts
-- active judgments
-- risks and open questions
-- next step
+The current `0.2.0` version also adds recommendation-first workday handling.
 
-### `daily_logs/YYYY-MM-DD.md`
+This layer helps answer:
 
-Stores milestone evidence such as:
+- should the session continue the previous active day?
+- should it start a new active day?
+- does the previous day appear unclosed?
+- what date is the best default suggestion for a new log entry?
 
-- completed work
-- key decisions
-- confirmed facts
-- blockers and recommended next steps
+It is recommendation-only.
 
-## 🔒 Why This Is More Than “A Few Project Files”
+It does **not** silently:
 
-`ContextWeave` is file-based, but it is not just “manually maintain a few markdown files.”  
-The current `0.1.0` line already includes:
+- close the previous day
+- create a new daily log
+- backfill historical dates
 
-- `config.json` as workspace configuration truth
-- `state.json` as machine state truth
-- a machine-readable contract
-- revision-aware commit / append helpers
-- project-scoped write locking
-- rollback / fail-closed behavior
+## History-Assisted Recovery
 
-That makes it a continuity system with formal boundaries, not just a documentation template.
+The current recovery direction is intentionally narrow.
 
-## 📦 Repository Layout
+It supports:
 
-This repository root is the skill package root:
+- user-provided transcripts
+- user-provided exports
+- user-provided summaries
+- reviewed recovery proposals
+
+It does **not** currently support:
+
+- automatic scanning of undocumented local history caches
+- using platform memory as the source of truth
+- promoting history directly into core files without review
+
+The intended flow is:
+
+1. collect history material
+2. prepare a recovery proposal
+3. review that proposal
+4. prepare promotion context
+5. only then write durable changes through the normal write helpers
+
+## Installed Package Layout
+
+Treat the full `contextweave/` directory as one installable package:
 
 ```text
 contextweave/
 ├── SKILL.md
 ├── README.md
+├── README.zh-CN.md
 ├── USAGE.md
 ├── package-metadata.json
+├── managed-assets.json
 ├── profiles/
 ├── references/
 ├── scripts/
@@ -229,74 +253,60 @@ contextweave/
 └── NOTICE
 ```
 
-For installation and distribution, treat the full directory as a single skill package.
+Do not copy only `SKILL.md`.
+When packaging from a source checkout, exclude local metadata and caches such as `.git/`, `__pycache__/`, `*.pyc`, and `.DS_Store`.
 
-## 🔄 How It Helps AI Stay Aligned
+## Common Installation Pattern
 
-```mermaid
-flowchart TD
-    A["Detect that the project uses ContextWeave"] --> B["Read the minimum viable continuity state"]
-    B --> C["Decide whether that state is still trustworthy"]
-    C --> D["Do a fuller restore only when needed"]
-    D --> E["Run preflight again before writing"]
-    E --> F["Write through the helpers safely"]
+If your environment uses directory-based skills, install the whole package directory:
+
+```bash
+cp -R /path/to/contextweave /path/to/<skills-dir>/contextweave
 ```
 
-This flow exists to do three things well:
+or
 
-- restore first
-- judge second
-- gate formal writes before applying them
+```bash
+ln -s /absolute/path/to/contextweave /path/to/<skills-dir>/contextweave
+```
 
-That is the difference between `ContextWeave` and “just keeping a few project notes.”
+Typical paths:
 
-## 🧩 Relationship to Platform-Native Memory
+- Codex: `.agents/skills/contextweave`
+- Claude Code: `~/.claude/skills/contextweave` or `.claude/skills/contextweave`
+- other directory-based environments: the tool's normal skills directory
 
-`ContextWeave` should not be read as a replacement for platform-native memory, compaction, or resume features.
+## Where To Read Next
 
-A more accurate split is:
+- [SKILL.md](./SKILL.md): agent-facing entrypoint
+- [USAGE.md](./USAGE.md): helper usage and runtime notes
+- [references/protocol.md](./references/protocol.md): protocol model
+- [references/file-contracts.md](./references/file-contracts.md): file-level contract
+- [references/operation-playbooks.md](./references/operation-playbooks.md): read/write playbooks
+- repository-level host adapter overview in `docs/adapters/README.md` when you are reading the full source checkout; that file is not bundled inside a standalone installed `contextweave/` package
 
-- platform features are primarily about runtime context management
-- `ContextWeave` is primarily about project-level, file-level, auditable continuity state
+## Current Status
 
-In one sentence:
-
-> platform features are about how the current session continues; `ContextWeave` is about how the project state itself continues.
-
-## 🧪 Project Status
-
-`ContextWeave` is currently in an early public-release stage.
+This repository is now on the `0.2.0` release line.
 
 What is already true:
 
-- a formal `0.1.0` release baseline exists
-- the core structure, protocol boundaries, and helper behavior are already fairly clear
-- it is ready to be distributed and tried as a standalone skill package
-- it is still actively evolving
-- it has not yet been validated across a large set of complex, long-running real-world projects
+- the `0.1.0` continuity baseline exists
+- the current `0.2.0` version has already added managed asset registration
+- the current `0.2.0` version has already added smaller cold-start guidance
+- the current `0.2.0` version has already added workday recommendation helpers
+- the current `0.2.0` version has already added the first reviewed recovery workflow helpers
 
-This project did not come out of a mature software organization running a long productization cycle. It is closer to an open-source artifact that grew out of repeated experiments by an independent author trying to solve cross-session continuity problems while using AI in real project work, including a large amount of vibe-coding-style iteration.
+What is intentionally still out of scope for this release:
 
-That also makes its strengths and boundaries fairly visible:
+- a command runtime for `/cw-*`
+- full task and capture companion layers
 
-- the strengths are clear problem focus, fast structural iteration, and a tight scope
-- the boundary is that it remains early and has not yet gone through large-scale long-term validation
+The right expectation is:
 
-The right expectation is therefore:
+> the `0.2.0` release line is usable, scoped, and publicly publishable, while larger command and companion expansions remain future work
 
-> it is already strong enough to be worth trying and worth evolving, but it is not yet a fully matured, everything-for-everyone product.
-
-## ✅ Current Version Information
-
-Current release metadata:
-
-- package version: `0.1.0`
-- protocol version: `1.0`
-- supported protocol versions: `1.0`
-- minimum Python version: `3.10`
-- supported workspace languages: `en`, `zh-CN`
-
-## 📄 License
+## License
 
 This project is released under Apache License 2.0.  
 See [LICENSE](./LICENSE) and [NOTICE](./NOTICE) for details.

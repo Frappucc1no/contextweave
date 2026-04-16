@@ -35,6 +35,8 @@ from _common import (
     ROOT_ENTRY_CANDIDATES,
     storage_root_for_mode,
     today_iso,
+    MANAGED_ASSET_REQUIRED_DIRECTORIES,
+    MANAGED_ASSET_REQUIRED_FILES,
     unknown_storage_assets,
     validate_iso_date,
     validate_storage_mode,
@@ -168,7 +170,7 @@ def existing_storage_issue(
     unknown_assets = unknown_storage_assets(storage_root)
     if unknown_assets:
         return (
-            "Refusing to initialize because the storage root already contains unexpected assets:\n"
+            "Refusing to initialize because the storage root already contains non-managed assets:\n"
             + "\n".join(str(path) for path in unknown_assets)
         )
 
@@ -208,8 +210,9 @@ def existing_storage_issue(
         )
 
     required_files = {
-        "context_brief.md": storage_root / FILE_KEYS["context_brief"],
-        "rolling_summary.md": storage_root / FILE_KEYS["rolling_summary"],
+        rel_path: storage_root / rel_path
+        for rel_path in MANAGED_ASSET_REQUIRED_FILES
+        if rel_path not in {FILE_KEYS["config"], FILE_KEYS["state"]}
     }
     missing_files = [name for name, path in required_files.items() if not path.is_file()]
     if missing_files:
@@ -220,11 +223,14 @@ def existing_storage_issue(
             + ". This looks like a partial or damaged ContextWeave sidecar."
         )
 
-    daily_logs_dir = storage_root / "daily_logs"
-    if not daily_logs_dir.is_dir():
+    required_dirs = {rel_path: storage_root / rel_path for rel_path in MANAGED_ASSET_REQUIRED_DIRECTORIES}
+    missing_dirs = [name for name, path in required_dirs.items() if not path.is_dir()]
+    if missing_dirs:
         return (
-            "Refusing to initialize because the existing storage root is missing the required daily_logs/ "
-            "directory. This looks like a partial or damaged ContextWeave sidecar."
+            "Refusing to initialize because the existing storage root is missing required managed directories "
+            "for a healthy workspace: "
+            + ", ".join(missing_dirs)
+            + ". This looks like a partial or damaged ContextWeave sidecar."
         )
 
     contract_checks = [
@@ -459,13 +465,18 @@ def main() -> None:
 
             storage_root_preexisted = storage_root.exists()
             storage_root.mkdir(parents=True, exist_ok=True)
+            required_directory_paths = [
+                storage_root / rel_path for rel_path in MANAGED_ASSET_REQUIRED_DIRECTORIES
+            ]
             daily_logs_dir = storage_root / "daily_logs"
-            daily_logs_preexisted = daily_logs_dir.exists()
-            daily_logs_dir.mkdir(parents=True, exist_ok=True)
+            preexisting_dirs = {path: path.exists() for path in required_directory_paths}
+            for directory in sorted(required_directory_paths, key=lambda item: len(item.parts)):
+                directory.mkdir(parents=True, exist_ok=True)
             if not storage_root_preexisted:
                 created_dirs.append(storage_root)
-            if not daily_logs_preexisted:
-                created_dirs.append(daily_logs_dir)
+            for directory in required_directory_paths:
+                if not preexisting_dirs[directory]:
+                    created_dirs.append(directory)
 
             created: list[str] = []
             skipped: list[str] = []
@@ -635,7 +646,7 @@ def main() -> None:
             message=str(exc),
             payload={"project_root": str(project_root), "initialized": False},
         )
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         try:
             rollback_init_writes(file_snapshots, created_dirs)
         except OSError:

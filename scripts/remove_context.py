@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="Allow removal even if the storage root contains unknown files or directories.",
+        help="Allow removal even if the storage root contains non-managed files or directories.",
     )
     parser.add_argument(
         "--storage-mode",
@@ -181,7 +181,7 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=3,
                     message=(
-                        "Refusing to remove ContextWeave because the storage root contains unknown assets. "
+                        "Refusing to remove ContextWeave because the storage root contains non-managed assets. "
                         "Review the reported paths or re-run with --force."
                     ),
                 )
@@ -246,7 +246,7 @@ def main() -> None:
             }
     except LockBusyError as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=3, message=str(exc))
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
 
     if args.json:

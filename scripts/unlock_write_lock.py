@@ -55,12 +55,15 @@ def main() -> None:
     except EnvironmentContractError as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
 
-    project_root = resolve_project_root(args.path)
-    lock_path = project_lock_path(project_root)
-    lock_exists = lock_path.is_file()
-    lock_payload = load_lock_payload(lock_path) if lock_exists else {}
-    lock_pid = lock_payload.get("pid")
-    pid_alive = bool(isinstance(lock_pid, int) and pid_is_alive(lock_pid))
+    try:
+        project_root = resolve_project_root(args.path)
+        lock_path = project_lock_path(project_root)
+        lock_exists = lock_path.is_file()
+        lock_payload = load_lock_payload(lock_path) if lock_exists else {}
+        lock_pid = lock_payload.get("pid")
+        pid_alive = bool(isinstance(lock_pid, int) and pid_is_alive(lock_pid))
+    except (OSError, UnicodeDecodeError) as exc:
+        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
 
     if args.yes and lock_exists and pid_alive and not args.force:
         exit_with_cli_error(

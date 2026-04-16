@@ -303,7 +303,7 @@ def main() -> None:
                 )
     except LockBusyError as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=3, message=str(exc))
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
 
     payload = {

@@ -39,14 +39,17 @@ Use this flow whenever resuming a project with an existing ContextWeave structur
 
 1. Locate the project root.
 2. Read `STORAGE_ROOT/config.json`.
-3. If `STORAGE_ROOT/update_protocol.md` exists, surface it for review before continuing.
-4. Read `STORAGE_ROOT/context_brief.md`.
-5. Read `STORAGE_ROOT/rolling_summary.md`.
-6. Read the latest active daily log, unless project-local read constraints define a narrower rule.
-7. Check whether newer artifacts exist than the maintained context files.
-8. Prefer verified newer evidence over stale continuity files.
+3. Read `STORAGE_ROOT/state.json`.
+4. Read `STORAGE_ROOT/rolling_summary.md`.
+5. If `STORAGE_ROOT/update_protocol.md` exists, surface it for review before expanding beyond the minimum continuity set.
+6. Read `STORAGE_ROOT/context_brief.md` only when the current task needs framing, scope, source-of-truth, or phase context that the summary does not already cover.
+7. Read the latest active daily log only when milestone evidence, workday judgment, or external-writer reconciliation requires it.
+8. Check whether newer artifacts exist than the maintained context files when freshness is uncertain or before a major write.
+9. Prefer verified newer evidence over stale continuity files.
 
 Cold start is for orientation, not for automatic rewriting.
+Cold start should restore and recommend first.
+It should not automatically continue `next_step` or execute unfinished project work without clear user confirmation.
 
 ## Choose the Write Set
 
@@ -72,12 +75,12 @@ If only one file needs updating, update only that file.
 
 When deterministic write safety matters, use this flow:
 
-1. run `preflight_context_check.py`
+1. run `preflight_context_check.py` for the default quick path, or `preflight_context_check.py --full` when you intentionally want the heavier workspace artifact scan
 2. prepare the content change outside the managed file
 3. use `commit_context_file.py` for `rolling_summary.md`, `context_brief.md`, or `update_protocol.md`
 4. use `append_daily_log_entry.py` for daily-log milestone entries
 
-In the current `0.1.0` release line, those revision-aware write helpers do not independently reread `update_protocol.md` before every write.
+In the current `0.2.0` release line, those revision-aware write helpers do not independently reread `update_protocol.md` before every write.
 
 ## End-of-Day Update
 

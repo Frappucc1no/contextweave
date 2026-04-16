@@ -28,6 +28,9 @@ from _common import (
     load_workspace_state,
     missing_section_keys,
     managed_exclude_block_text,
+    is_optional_storage_file,
+    is_required_storage_directory,
+    is_required_storage_file,
     parse_daily_log_entry_line,
     parse_daily_log_entry_marker,
     parse_daily_log_scaffold_marker,
@@ -290,13 +293,8 @@ def validate_section_semantics(
 def validate_context_brief(workspace, state: dict | None, findings: list[ValidationFinding]) -> None:
     path = workspace.storage_root / FILE_KEYS["context_brief"]
     if not path.is_file():
-        add_finding(
-            findings,
-            "error",
-            "missing_context_brief",
-            "Missing required file: context_brief.md",
-            path,
-        )
+        level = "error" if is_required_storage_file(FILE_KEYS["context_brief"]) else "warning"
+        add_finding(findings, level, "missing_context_brief", "Missing required file: context_brief.md", path)
         return
     text = read_text(path)
     marker = validate_marker(path, text, "context_brief", workspace, findings)
@@ -322,13 +320,8 @@ def validate_context_brief(workspace, state: dict | None, findings: list[Validat
 def validate_rolling_summary(workspace, state: dict | None, findings: list[ValidationFinding]) -> None:
     path = workspace.storage_root / FILE_KEYS["rolling_summary"]
     if not path.is_file():
-        add_finding(
-            findings,
-            "error",
-            "missing_rolling_summary",
-            "Missing required file: rolling_summary.md",
-            path,
-        )
+        level = "error" if is_required_storage_file(FILE_KEYS["rolling_summary"]) else "warning"
+        add_finding(findings, level, "missing_rolling_summary", "Missing required file: rolling_summary.md", path)
         return
 
     text = read_text(path)
@@ -392,7 +385,8 @@ def validate_rolling_summary(workspace, state: dict | None, findings: list[Valid
 def validate_daily_logs(workspace, state: dict | None, findings: list[ValidationFinding]) -> None:
     logs_dir = workspace.storage_root / "daily_logs"
     if not logs_dir.is_dir():
-        add_finding(findings, "error", "missing_daily_logs", "Missing required directory: daily_logs", logs_dir)
+        level = "error" if is_required_storage_directory("daily_logs") else "warning"
+        add_finding(findings, level, "missing_daily_logs", "Missing required directory: daily_logs", logs_dir)
         return
 
     for log_path in invalid_iso_like_daily_log_files(logs_dir):
@@ -539,7 +533,7 @@ def validate_unknown_storage_assets(workspace, findings: list[ValidationFinding]
             findings,
             "error",
             "unexpected_storage_asset",
-            "Unexpected non-contract asset detected inside the ContextWeave storage root",
+            "Unexpected non-managed asset detected inside the ContextWeave storage root",
             path,
         )
 
@@ -547,13 +541,9 @@ def validate_unknown_storage_assets(workspace, findings: list[ValidationFinding]
 def validate_update_protocol(workspace, state: dict | None, findings: list[ValidationFinding]) -> None:
     path = workspace.storage_root / FILE_KEYS["update_protocol"]
     if not path.is_file():
-        add_finding(
-            findings,
-            "warning",
-            "missing_update_protocol",
-            "Missing recommended file: update_protocol.md",
-            path,
-        )
+        level = "warning" if is_optional_storage_file(FILE_KEYS["update_protocol"]) else "error"
+        message = "Missing recommended file: update_protocol.md" if level == "warning" else "Missing required file: update_protocol.md"
+        add_finding(findings, level, "missing_update_protocol", message, path)
         return
     text = read_text(path)
     marker = validate_marker(path, text, "update_protocol", workspace, findings)
@@ -587,9 +577,10 @@ def validate_update_protocol(workspace, state: dict | None, findings: list[Valid
 
 def validate_config(workspace, findings: list[ValidationFinding]) -> None:
     if workspace.config_path is None or not workspace.config_path.is_file():
+        level = "error" if is_required_storage_file(FILE_KEYS["config"]) else "warning"
         add_finding(
             findings,
-            "error",
+            level,
             "missing_config",
             "Managed storage modes require config.json in the storage root",
             workspace.storage_root / FILE_KEYS["config"],
@@ -599,7 +590,8 @@ def validate_config(workspace, findings: list[ValidationFinding]) -> None:
 def validate_state_file(workspace, findings: list[ValidationFinding]) -> None:
     path = workspace.storage_root / FILE_KEYS["state"]
     if not path.is_file():
-        add_finding(findings, "error", "missing_state", "Missing required file: state.json", path)
+        level = "error" if is_required_storage_file(FILE_KEYS["state"]) else "warning"
+        add_finding(findings, level, "missing_state", "Missing required file: state.json", path)
         return
     try:
         state = load_workspace_state(path)
@@ -871,17 +863,26 @@ def main() -> None:
         )
 
     findings: list[ValidationFinding] = []
-    validate_config(workspace, findings)
-    validate_state_file(workspace, findings)
-    state = load_state_snapshot(workspace, findings)
-    validate_context_brief(workspace, state, findings)
-    validate_rolling_summary(workspace, state, findings)
-    validate_daily_logs(workspace, state, findings)
-    validate_daily_log_state(workspace, state, findings)
-    validate_update_protocol(workspace, state, findings)
-    validate_bridge_blocks(workspace, state, findings)
-    validate_exclude_block(workspace, state, findings)
-    validate_unknown_storage_assets(workspace, findings)
+    try:
+        validate_config(workspace, findings)
+        validate_state_file(workspace, findings)
+        state = load_state_snapshot(workspace, findings)
+        validate_context_brief(workspace, state, findings)
+        validate_rolling_summary(workspace, state, findings)
+        validate_daily_logs(workspace, state, findings)
+        validate_daily_log_state(workspace, state, findings)
+        validate_update_protocol(workspace, state, findings)
+        validate_bridge_blocks(workspace, state, findings)
+        validate_exclude_block(workspace, state, findings)
+        validate_unknown_storage_assets(workspace, findings)
+    except (OSError, UnicodeDecodeError) as exc:
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=f"Filesystem error: {exc}",
+            payload={"valid": False},
+        )
 
     errors = [f for f in findings if f.level == "error"]
     warnings = [f for f in findings if f.level == "warning"]
