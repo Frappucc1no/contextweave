@@ -1,11 +1,12 @@
-# 🧶 ContextWeave
-
 <div align="center">
+
+<img src="./i/cw-logo.png" alt="ContextWeave logo" width="280" />
+<h1>🧶 ContextWeave</h1>
 
 **A file-native continuity layer for long-running AI projects.**
 
+[![Version](https://img.shields.io/badge/version-v0.2.1-111827)](./package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
-[![Protocol Version](https://img.shields.io/badge/protocol-1.0-0f766e)](./package-metadata.json)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./package-metadata.json)
 
 **English** · [简体中文](./README.zh-CN.md)
@@ -18,27 +19,36 @@ In long-running AI work, the biggest source of friction usually is not model qua
 
 ContextWeave does not depend on a single chat window, and it does not ask you to trust a platform's private memory as the source of truth. Instead, it keeps a small, explicit, reviewable continuity layer inside the project workspace itself, so the next session can quickly answer four practical questions:
 
-<table>
-  <tr>
-    <td width="50%"><strong>🎯 Project purpose</strong><br/>What is this project actually trying to do?</td>
-    <td width="50%"><strong>📍 Current truth</strong><br/>What is true right now?</td>
-  </tr>
-  <tr>
-    <td><strong>🧗 Progress so far</strong><br/>What important milestones have already happened?</td>
-    <td><strong>🚀 Next action</strong><br/>What is the most sensible thing to do next?</td>
-  </tr>
-</table>
+- 🎯 **Project purpose**: What is this project actually trying to do?
+- 📍 **Current truth**: What is true right now?
+- 🧗 **Progress so far**: What important milestones have already happened?
+- 🚀 **Next action**: What is the most sensible thing to do next?
+
+<p align="center">
+  <img src="./i/1.png" alt="Without and with ContextWeave comparison" />
+</p>
 
 ## ✨ The Core Idea
 
-| Approach | What the reader actually gets |
-|---|---|
-| **🛡️ File-native by design** | Continuity lives in plain Markdown and JSON inside the workspace, so it is easy to review, version, move, and recover. |
-| **⚡ Disciplined cold starts** | Instead of loading all history at once, it starts from the smallest useful continuity set and expands only when needed. |
-| **🧠 Layered continuity** | Stable context, current state, machine-readable control files, and milestone history are kept separate to reduce drift. |
-| **🔒 Recommendation before overwrite** | It can recommend recovery steps, workday handling, and next reviews without silently rewriting project state. |
-| **🧪 Built-in write guardrails** | When formal writes do happen, locks and validation help reduce accidental or messy state updates. |
-| **📅 Better recovery and resumption** | Workday suggestions, recovery proposals, and review records make long-running projects easier to continue safely. |
+- **🛡️ File-native by design**: Continuity lives in plain Markdown and JSON inside the workspace, so it is easy to review, version, move, and recover.
+- **⚡ Disciplined cold starts**: Instead of loading all history at once, it starts from the smallest useful continuity set and expands only when needed.
+- **🧠 Layered continuity**: Stable context, current state, machine-readable control files, and milestone history are kept separate to reduce drift.
+- **🔒 Recommendation before overwrite**: It can recommend recovery steps, workday handling, and next reviews without silently rewriting project state.
+- **🧪 Built-in write guardrails**: When formal writes do happen, locks and validation help reduce accidental or messy state updates.
+- **📅 Better recovery and resumption**: Workday suggestions, recovery proposals, and review records make long-running projects easier to continue safely.
+
+## 🎯 Where It Fits Best
+
+ContextWeave works especially well when a project needs to stay understandable across days, sessions, tools, or collaborators.
+
+<p align="center">
+  <img src="./i/2.png" alt="Typical long-running project scenarios" />
+</p>
+
+- **Research writing**: Keep the current judgment, evidence trail, and next writing focus from drifting.
+- **Product document collaboration**: Keep scope, decisions, source of truth, and next review steps aligned.
+- **Software project coordination**: Keep implementation status, blockers, and next actions visible across sessions.
+- **Mixed long-running projects**: When a project spans several work modes at once, the general continuity path stays the safest default.
 
 ## 🗺️ What To Think Of It As
 
@@ -48,16 +58,10 @@ If this is your first time seeing ContextWeave, the easiest mental model is not 
 
 That handbook is built around four simple parts:
 
-<table>
-  <tr>
-    <td width="50%"><strong>One page of context</strong><br/>So the AI knows what this project is.</td>
-    <td width="50%"><strong>One page of current state</strong><br/>So the AI knows what is true right now.</td>
-  </tr>
-  <tr>
-    <td><strong>A running record of progress</strong><br/>So the AI knows what has actually happened.</td>
-    <td><strong>A layer of read/write guardrails</strong><br/>So the AI knows how to read carefully and when to write carefully.</td>
-  </tr>
-</table>
+- **One page of context**: So the AI knows what this project is.
+- **One page of current state**: So the AI knows what is true right now.
+- **A running record of progress**: So the AI knows what has actually happened.
+- **A layer of read/write guardrails**: So the AI knows how to read carefully and when to write carefully.
 
 ```mermaid
 flowchart TB
@@ -105,14 +109,12 @@ That makes it easier for the AI to distinguish between "this was really done" an
 
 ### 4. Control And Safety Layer
 
-This layer is not mainly for humans to read. It exists so tools and helper scripts can keep the continuity layer orderly.
+This layer is not mainly for humans to read. It exists so tools and helper scripts can keep the continuity layer orderly. It mainly helps an agent do four things:
 
-| What it helps judge | Why that matters |
-|---|---|
-| What should be read first | Avoids loading the entire history up front. |
-| Whether the current context is fresh enough | Reduces the risk of continuing from stale state. |
-| When something should be reviewed before writing | Makes formal updates safer. |
-| How to be more careful during formal writes | Lowers the chance of messy or conflicting state changes. |
+- **What should be read first**: Avoid loading the entire history up front.
+- **Whether the current context is fresh enough**: Reduce the risk of continuing from stale state.
+- **When something should be reviewed before writing**: Make formal updates safer.
+- **How to be more careful during formal writes**: Lower the chance of messy or conflicting state changes.
 
 ## 🗂️ How That Maps To Files
 
@@ -123,7 +125,7 @@ flowchart LR
     A["Project context layer"] --> A1["context_brief.md"]
     B["Current state layer"] --> B1["rolling_summary.md"]
     C["Progress record layer"] --> C1["daily_logs/YYYY-MM-DD.md"]
-    D["Control and safety layer"] --> D1["config.json / state.json / update_protocol.md"]
+    D["Control and safety layer"] --> D1["config.json / state.json / optional local override file"]
 ```
 
 | Actual file | Role |
@@ -131,7 +133,7 @@ flowchart LR
 | `context_brief.md` | Stores stable background and long-lived project framing. |
 | `rolling_summary.md` | Stores the current snapshot the next session should align to first. |
 | `daily_logs/YYYY-MM-DD.md` | Stores milestone evidence and meaningful progress by date. |
-| `config.json`, `state.json`, `update_protocol.md` | Help tools read in the right order and write more carefully. |
+| `config.json`, `state.json`, and the optional local override file | Help tools read in the right order and write more carefully. |
 
 ContextWeave also includes a deliberately limited companion area for recovery proposals and review records. Its job is to keep those intermediate materials separate from the project's core truth files, so recovery stays clear and reviewable.
 
@@ -147,7 +149,7 @@ PROJECT_ROOT/
     ├── state.json
     ├── context_brief.md
     ├── rolling_summary.md
-    ├── update_protocol.md         # optional
+    ├── local override file        # optional
     ├── daily_logs/
     │   └── YYYY-MM-DD.md
     └── companion/                 # appears only when needed
@@ -183,10 +185,8 @@ flowchart LR
 
 That is why ContextWeave can do two useful things at once:
 
-| Benefit | What it means in practice |
-|---|---|
-| Faster cold starts | New sessions can get useful context more quickly. |
-| More careful formal writes | Important updates are less likely to drift or land in the wrong place. |
+- **Faster cold starts**: New sessions can get useful context more quickly.
+- **More careful formal writes**: Important updates are less likely to drift or land in the wrong place.
 
 ## 🏁 Quick Start
 
@@ -282,7 +282,7 @@ rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
 
 <details>
   <summary><strong>Is it only for coding projects?</strong></summary>
-  <p>No. It also works well for research writing, product document collaboration, and software project coordination—any work that unfolds over time and benefits from cross-session continuity.</p>
+  <p>No. It also works well for research writing, product document collaboration, software project coordination, and mixed long-running projects. When a project does not clearly fit a specialized mode, the general continuity path is the safest default.</p>
 </details>
 
 <details>
@@ -302,24 +302,19 @@ rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
 
 ## 🌟 Current Version Highlights
 
-| Highlight | What it means for the reader |
-|---|---|
-| Workday recommendation | Helps an agent judge which day of work is most appropriate to continue, reducing confusion across day boundaries. |
-| Recovery proposals and review records | Makes historical recovery clearer and easier to review collaboratively. |
-| More stable cold starts | Starts from the minimum useful continuity surface so new sessions can get into context faster. |
-| Cleaner continuity asset organization | Keeps continuity files, recovery materials, and auxiliary records in clearer places. |
-| More reliable formal-write protection | Adds stronger guardrails around writes that land in durable project state. |
+- **Workday recommendation**: Helps an agent judge which day of work is most appropriate to continue, reducing confusion across day boundaries.
+- **Recovery proposals and review records**: Makes historical recovery clearer and easier to review collaboratively.
+- **More stable cold starts**: Starts from the minimum useful continuity surface so new sessions can get into context faster.
+- **Cleaner continuity asset organization**: Keeps continuity files, recovery materials, and auxiliary records in clearer places.
+- **More reliable formal-write protection**: Adds stronger guardrails around writes that land in durable project state.
 
 ## 📚 Advanced Reading And Core References
 
 Once your project is using ContextWeave, these are the core documents to read if you want to understand the write contract more deeply or build on top of it:
 
-| Document | Best read when |
-|---|---|
-| 🤖 [**SKILL.md**](./SKILL.md) | You want to see how an agent is expected to enter and use ContextWeave in practice. |
-| 📖 [**USAGE.md**](./USAGE.md) | You want helper runtime usage details and human-in-the-loop guidance. |
-| 📜 [**references/protocol.md**](./references/protocol.md) | You want the full continuity model underneath the package. |
-| 🔐 [**references/file-contracts.md**](./references/file-contracts.md) | You want to understand what counts as a valid state update at the file-contract level. |
+- 🤖 [**SKILL.md**](./SKILL.md): Best when you want to see how an agent is expected to enter ContextWeave, choose the right profile, and use it in practice.
+- 📖 [**USAGE.md**](./USAGE.md): Best when you want helper runtime usage details and human-in-the-loop guidance.
+- 🔐 [**references/file-contracts.md**](./references/file-contracts.md): Best when you want to understand what counts as a valid state update at the file-contract level.
 
 ## 📄 License
 

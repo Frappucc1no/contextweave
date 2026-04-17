@@ -6,6 +6,7 @@ Use this profile when the project is driven by:
 - specs and implementation coordination
 - software project status continuity
 - repo-level project organization
+- multi-session software project handoff
 
 This profile is coordination-oriented.
 
@@ -19,12 +20,13 @@ Software projects drift when:
 - specs and plans fall behind the actual workspace
 - different sessions anchor on different assumptions
 - coordination notes become a weak substitute for explicit current state
+- blockers and ownership gaps stay implicit instead of visible
 
 ## What to Emphasize
 
 In this profile, emphasize:
 
-- project state continuity
+- verified project state continuity
 - decision traceability
 - spec and plan alignment
 - reducing drift across sessions and tools
@@ -45,9 +47,9 @@ In this profile, emphasize:
 
 - `STORAGE_ROOT/rolling_summary.md`
   Focus on:
-  - `current_state` for the actual project state right now
-  - `active_judgments` for active coordination assumptions or decisions
-  - `risks_open_questions` for blockers and unresolved dependencies
+  - `current_state` for the actual validated project state right now
+  - `active_judgments` for active coordination assumptions, tradeoffs, or decisions
+  - `risks_open_questions` for blockers, unresolved dependencies, and verification gaps
   - `next_step` for the next coordination move
 
 - `STORAGE_ROOT/daily_logs/`
@@ -56,5 +58,7 @@ In this profile, emphasize:
 ## Common Anti-Pattern
 
 Do not confuse software-project coordination with full coding automation.
+
+Do not let plans or backlog notes substitute for verified current state.
 
 ContextWeave can support software projects well at the project-state layer without claiming to replace the entire engineering execution stack.

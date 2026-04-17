@@ -1,6 +1,6 @@
 ---
 name: contextweave
-description: Use when a task involves continuing a project, restoring project context, maintaining file-based project memory, updating current-state summaries, or recording meaningful progress across sessions. Works best for long-horizon, file-based projects and supports research writing, product document collaboration, and software project coordination.
+description: Use when a task involves continuing a project, restoring project context, maintaining file-based project memory, updating current-state summaries, or recording meaningful progress across sessions. Works best for long-horizon, file-based projects and supports research writing, product document collaboration, software project coordination, and broader cross-functional project continuity.
 ---
 
 # ContextWeave
@@ -142,15 +142,37 @@ The protocol is designed to reduce noise, not to turn every session into documen
 
 ## Profiles
 
-ContextWeave currently provides three profiles:
+ContextWeave currently provides four profiles:
 
+- `profiles/general-project-continuity.md`
 - `profiles/research-writing.md`
 - `profiles/product-doc-collaboration.md`
 - `profiles/software-project-coordination.md`
 
-Use the profile that best matches the project shape.
+Profiles do not replace the core protocol.
+They are thin guidance layers that refine emphasis, evidence handling, and common drift risks for different project shapes.
 
-Profiles do not replace the core protocol. They refine emphasis, evidence handling, and common drift risks for different project types.
+Default rule:
+
+- use `general-project-continuity.md` by default
+- switch to a specialized profile only when the project shape is a high-confidence match
+- if you are unsure, do not guess; stay on the general profile
+
+Use the specialized profiles only when the primary artifact, working style, and likely drift risks clearly line up:
+
+- `research-writing.md`
+  - use when the work is driven by sources, claims, evidence, and long-form analytical writing
+- `product-doc-collaboration.md`
+  - use when the work is driven by PRDs, RFCs, strategy docs, scope decisions, or stakeholder-aligned product writing
+- `software-project-coordination.md`
+  - use when the work is driven by engineering planning, spec-to-implementation coordination, or repo-level software project continuity
+
+Use `general-project-continuity.md` when:
+
+- the project mixes multiple artifact types
+- the project is cross-functional rather than domain-pure
+- no specialized profile is an obvious fit
+- you need a stable fallback that preserves continuity without over-assuming the project shape
 
 ## What ContextWeave Does Not Try To Be
 
