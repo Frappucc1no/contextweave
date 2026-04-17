@@ -15,7 +15,7 @@ Typical installation patterns include:
 The exact installation path depends on the host agent tool.
 This package itself stays host-agnostic:
 
-- install the whole `contextweave/` folder as one skill package
+- install the whole `skills/contextweave/` directory from the source repository as one skill package
 - place it in the directory your host already uses for installed skills
 - let the host discover and trigger `SKILL.md` through its standard skill mechanism
 
@@ -25,9 +25,13 @@ This installable package does not bundle host-specific adapter docs or a custom 
 
 The installed package directory should keep the name `contextweave/`.
 
-This file is the operator guide for installation and helper-script use.
+This file is the operator guide for repository-level installation guidance and helper-script use.
 
-The canonical package manifest lives in `README.md`.
+If you are reading from a source checkout, the installable skill root lives at:
+
+- `skills/contextweave/`
+
+The repository root may also contain landing-page READMEs, marketing assets, and other human-facing documentation that are not part of the installed skill directory.
 
 Typical layouts look like:
 
@@ -35,30 +39,22 @@ Typical layouts look like:
 <user-skills-dir>/
   contextweave/
     SKILL.md
-    README.md
-    USAGE.md
     package-metadata.json
     managed-assets.json
     references/
     profiles/
     scripts/
-    LICENSE
-    NOTICE
 ```
 
 ```text
 <project-skills-dir>/
   contextweave/
     SKILL.md
-    README.md
-    USAGE.md
     package-metadata.json
     managed-assets.json
     references/
     profiles/
     scripts/
-    LICENSE
-    NOTICE
 ```
 
 You can install it by copying or symlinking the package directory into a compatible skills folder.
@@ -66,11 +62,17 @@ You can install it by copying or symlinking the package directory into a compati
 Examples:
 
 ```bash
-cp -R /path/to/contextweave /path/to/<user-skills-dir>/contextweave
+cp -R /path/to/contextweave/skills/contextweave /path/to/<user-skills-dir>/contextweave
 ```
 
 ```bash
-ln -s /absolute/path/to/contextweave /path/to/<project-skills-dir>/contextweave
+ln -s /absolute/path/to/contextweave/skills/contextweave /path/to/<project-skills-dir>/contextweave
+```
+
+If you are using the Skills CLI against the public GitHub repository, the canonical install form is:
+
+```bash
+npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave
 ```
 
 Keep the package contents together.
@@ -182,7 +184,7 @@ python3.13 /path/to/contextweave/scripts/init_context.py ...
 py -3.13 \path\to\contextweave\scripts\init_context.py ...
 ```
 
-If you are already inside the installed `contextweave/` package directory, the equivalent shorter form is:
+If you are already inside the installed `contextweave/` package directory, or inside `skills/contextweave/` in a source checkout, the equivalent shorter form is:
 
 ```text
 <python-3.10+ interpreter> scripts/init_context.py ...
@@ -392,9 +394,9 @@ If they become incomplete, duplicated, or reordered, validation may fail and bri
 
 ## Typical First Steps
 
-1. Install the whole `contextweave/` folder into the skill directory your host already uses.
+1. Install the whole `skills/contextweave/` directory from the source repository into the skill directory your host already uses.
 2. Let the host rediscover skills using its standard skill flow.
-3. Open a terminal in the installed `contextweave/` package directory.
+3. Open a terminal in the installed `contextweave/` package directory, or in `skills/contextweave/` if you are working from a source checkout.
 4. Run:
 
 ```bash

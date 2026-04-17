@@ -1,13 +1,13 @@
 <div align="center">
 
-<img src="./i/cw-logo.png" alt="ContextWeave logo" width="280" />
+<img src="./docs/images/cw-logo.png" alt="ContextWeave logo" width="280" />
 <h1>🧶 ContextWeave</h1>
 
 **A long-running project should not feel like it has to restart every time you switch models, agents, or sessions.**
 
-[![Version](https://img.shields.io/badge/version-v0.2.1-111827)](./package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.2.1-111827)](./skills/contextweave/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./package-metadata.json)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/contextweave/package-metadata.json)
 
 **English** · [简体中文](./README.zh-CN.md)
 
@@ -35,7 +35,7 @@ ContextWeave does not depend on a single chat window, and it does not ask you to
 - 🚀 **Next action**: What is the most sensible thing to do next?
 
 <p align="center">
-  <img src="./i/1.png" alt="Without and with ContextWeave comparison" />
+  <img src="./docs/images/1.png" alt="Without and with ContextWeave comparison" />
 </p>
 
 ## ✅ What You Get Right Away
@@ -60,7 +60,7 @@ ContextWeave does not depend on a single chat window, and it does not ask you to
 ContextWeave becomes much more valuable when a project has to continue across days, sessions, tools, models, or collaborators.
 
 <p align="center">
-  <img src="./i/2.png" alt="Typical long-running project scenarios" />
+  <img src="./docs/images/2.png" alt="Typical long-running project scenarios" />
 </p>
 
 - **People who mix platforms and models**: If you switch between tools like `Claude Code`, `Codex`, `Gemini CLI`, and `Qwen Code`, it helps reduce the cost of re-explaining the project every time.
@@ -219,7 +219,7 @@ If what you care about right now is “how do I connect this to a real project t
 If your environment supports an open Skills CLI such as [skills.sh](https://skills.sh/docs/cli), the shortest path is to install directly:
 
 ```bash
-npx skills add https://github.com/Frappucc1no/contextweave
+npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave
 ```
 
 Best for:
@@ -230,13 +230,13 @@ Best for:
 
 #### Option B: I want to use it long-term inside my existing AI tool
 
-If your AI tool uses a directory-based skills setup, just install the entire repository directory into the appropriate skills folder. Do not copy only `SKILL.md`.
+If your AI tool uses a directory-based skills setup, install the actual skill directory into the appropriate skills folder. Do not copy only `SKILL.md`.
 
 ```bash
-cp -R /path/to/contextweave /path/to/<skills-dir>/contextweave
+cp -R /path/to/contextweave/skills/contextweave /path/to/<skills-dir>/contextweave
 
 # or
-ln -s /absolute/path/to/contextweave /path/to/<skills-dir>/contextweave
+ln -s /absolute/path/to/contextweave/skills/contextweave /path/to/<skills-dir>/contextweave
 ```
 
 Best for:
@@ -257,7 +257,7 @@ Default recommendation:
 
 | Environment | Recommended setup | Best when |
 |---|---|---|
-| Skills CLI ecosystem | `npx skills add https://github.com/Frappucc1no/contextweave` | You want the fastest possible trial. |
+| Skills CLI ecosystem | `npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave` | You want the fastest possible trial. |
 | Codex | Install into `.agents/skills/contextweave` | You want long-running work and project-level collaboration inside a repository. |
 | Claude Code | Install into `~/.claude/skills/contextweave` or `.claude/skills/contextweave` | User-level or project-level installation. |
 | Other tools that support directory-based skills | Install the whole directory into that tool's skills folder | You want to reuse the same continuity files across tools. |
@@ -272,7 +272,7 @@ That is the fastest way to feel whether it actually solves your problem.
 
 #### Step 1: Initialize the project
 
-If you are already inside the installed `contextweave/` package directory, run:
+If you are already inside the installed `contextweave/` package directory, or inside `skills/contextweave/` in a source checkout, run:
 
 ```bash
 python3.13 scripts/init_context.py /absolute/path/to/project
@@ -300,16 +300,16 @@ Do not start by memorizing commands. Just use natural prompts such as:
 
 Once you have run it on a real project once, these documents will make much more sense:
 
-- Want a default workflow by work type: check `profiles/`
+- Want a default workflow by work type: check [skills/contextweave/profiles/](./skills/contextweave/profiles/)
 - Want to understand how the helper runtime works: read [USAGE.md](./USAGE.md)
-- Want the file contract and state structure details: read [references/file-contracts.md](./references/file-contracts.md)
+- Want the file contract and state structure details: read [skills/contextweave/references/file-contracts.md](./skills/contextweave/references/file-contracts.md)
 
 <details>
   <summary><strong>See a Codex project-level install example</strong></summary>
 
 ```bash
 mkdir -p .agents/skills
-ln -s /absolute/path/to/contextweave .agents/skills/contextweave
+ln -s /absolute/path/to/contextweave/skills/contextweave .agents/skills/contextweave
 ```
 
 </details>
@@ -319,7 +319,7 @@ ln -s /absolute/path/to/contextweave .agents/skills/contextweave
 
 ```bash
 mkdir -p ~/.claude/skills/contextweave
-rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
+rsync -a /absolute/path/to/contextweave/skills/contextweave/ ~/.claude/skills/contextweave/
 ```
 
 </details>
@@ -340,6 +340,15 @@ If that moment feels noticeably easier because:
 - someone else can step in more easily
 
 then it is valuable for your workflow.
+
+### If an update behaves unexpectedly
+
+Remove and reinstall:
+
+```bash
+npx skills remove contextweave
+npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave
+```
 
 ## ❓ FAQ
 
@@ -385,9 +394,9 @@ then it is valuable for your workflow.
 
 Once your project is using ContextWeave, these are the core documents to read if you want to understand the write contract more deeply or build on top of it:
 
-- 🤖 [**SKILL.md**](./SKILL.md): Best when you want to see how an agent is expected to enter ContextWeave, choose the right profile, and use it in practice.
+- 🤖 [**SKILL.md**](./skills/contextweave/SKILL.md): Best when you want to see how an agent is expected to enter ContextWeave, choose the right profile, and use it in practice.
 - 📖 [**USAGE.md**](./USAGE.md): Best when you want helper runtime usage details and human-in-the-loop guidance.
-- 🔐 [**references/file-contracts.md**](./references/file-contracts.md): Best when you want to understand what counts as a valid state update at the file-contract level.
+- 🔐 [**references/file-contracts.md**](./skills/contextweave/references/file-contracts.md): Best when you want to understand what counts as a valid state update at the file-contract level.
 
 ## 📄 License
 

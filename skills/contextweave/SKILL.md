@@ -18,10 +18,15 @@ This file is the agent-facing entrypoint for the installable `contextweave/` ski
 Install and trigger this package through your host agent's normal skill discovery flow.
 ContextWeave itself does not define a custom host-specific launcher inside the package.
 
-For package inventory, installation guidance, and helper-script runtime details, see:
+This installable package is intentionally kept lean.
+Human-facing repository landing pages and marketing docs may exist upstream, but they are not bundled into the installed skill directory.
 
-- `README.md`
-- `USAGE.md`
+For package inventory, protocol details, and helper-script behavior, rely on the files that ship inside the package itself:
+
+- `package-metadata.json`
+- `references/file-contracts.md`
+- `references/operation-playbooks.md`
+- `references/protocol.md`
 
 ## When To Use It
 
