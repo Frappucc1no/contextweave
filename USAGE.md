@@ -44,6 +44,8 @@ Typical layouts look like:
     references/
     profiles/
     scripts/
+    LICENSE
+    NOTICE
 ```
 
 ```text
@@ -55,6 +57,8 @@ Typical layouts look like:
     references/
     profiles/
     scripts/
+    LICENSE
+    NOTICE
 ```
 
 You can install it by copying or symlinking the package directory into a compatible skills folder.
