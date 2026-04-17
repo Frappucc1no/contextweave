@@ -3,7 +3,7 @@
 <img src="./i/cw-logo.png" alt="ContextWeave logo" width="280" />
 <h1>🧶 ContextWeave</h1>
 
-**A file-native continuity layer for long-running AI projects.**
+**A long-running project should not feel like it has to restart every time you switch models, agents, or sessions.**
 
 [![Version](https://img.shields.io/badge/version-v0.2.1-111827)](./package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
@@ -13,11 +13,21 @@
 
 </div>
 
+ContextWeave keeps project background, current truth, key progress, and next action inside the workspace, so different models, different agents, and different collaborators can keep working from the same project reality.
+
 ## 💡 Why ContextWeave?
 
-In long-running AI work, the biggest source of friction usually is not model quality. It is what happens after a session ends: the project keeps going, but the context drifts.
+If you are already mixing `Claude Code`, `Codex`, `Gemini CLI`, `Qwen Code`, or even running multiple agents on the same project, you have probably felt some of these problems already:
 
-ContextWeave does not depend on a single chat window, and it does not ask you to trust a platform's private memory as the source of truth. Instead, it keeps a small, explicit, reviewable continuity layer inside the project workspace itself, so the next session can quickly answer four practical questions:
+- Every time you switch models, you end up re-explaining the project.
+- Every time you hand work to a new agent, the why behind previous decisions starts to disappear.
+- Platform memory only works inside that platform, so the moment the project moves, the memory breaks apart too.
+- Every new collaborator has to figure out what is actually true right now.
+- The longer a project runs, the more historical discussion, temporary ideas, and current conclusions blur together.
+
+What slows long-running AI work down is often not weak model quality. It is **unstable project continuity**.
+
+ContextWeave does not depend on a single chat window, and it does not ask you to trust a platform's private memory as the source of truth. Instead, it puts a small, explicit, reviewable continuity layer back into the project workspace itself, so that whoever picks the project up next can quickly answer four practical questions:
 
 - 🎯 **Project purpose**: What is this project actually trying to do?
 - 📍 **Current truth**: What is true right now?
@@ -28,6 +38,14 @@ ContextWeave does not depend on a single chat window, and it does not ask you to
   <img src="./i/1.png" alt="Without and with ContextWeave comparison" />
 </p>
 
+## ✅ What You Get Right Away
+
+- **You stop re-explaining the project every time you switch models**: key background, current state, progress, and next action already live in the workspace.
+- **You stop relying on chat history when switching agents**: the current truth of the project no longer lives only in the previous window.
+- **New collaborators can join the work more easily**: they do not need to read a long diff or a giant thread first just to understand where the project stands.
+- **“What is true now” becomes its own object**: instead of mixing current conclusions with old discussion and temporary ideas.
+- **Long-running work becomes file-carried instead of memory-carried**: whoever picks the project back up can align on truth first, then continue.
+
 ## ✨ The Core Idea
 
 - **🛡️ File-native by design**: Continuity lives in plain Markdown and JSON inside the workspace, so it is easy to review, version, move, and recover.
@@ -37,24 +55,26 @@ ContextWeave does not depend on a single chat window, and it does not ask you to
 - **🧪 Built-in write guardrails**: When formal writes do happen, locks and validation help reduce accidental or messy state updates.
 - **📅 Better recovery and resumption**: Workday suggestions, recovery proposals, and review records make long-running projects easier to continue safely.
 
-## 🎯 Where It Fits Best
+## 🎯 Who It Fits Best And What Work It Fits Best
 
-ContextWeave works especially well when a project needs to stay understandable across days, sessions, tools, or collaborators.
+ContextWeave becomes much more valuable when a project has to continue across days, sessions, tools, models, or collaborators.
 
 <p align="center">
   <img src="./i/2.png" alt="Typical long-running project scenarios" />
 </p>
 
-- **Research writing**: Keep the current judgment, evidence trail, and next writing focus from drifting.
-- **Product document collaboration**: Keep scope, decisions, source of truth, and next review steps aligned.
-- **Software project coordination**: Keep implementation status, blockers, and next actions visible across sessions.
-- **Mixed long-running projects**: When a project spans several work modes at once, the general continuity path stays the safest default.
+- **People who mix platforms and models**: If you switch between tools like `Claude Code`, `Codex`, `Gemini CLI`, and `Qwen Code`, it helps reduce the cost of re-explaining the project every time.
+- **People who use multiple agents on the same project**: If you run agents in parallel or keep handing work to fresh sessions, it helps stabilize project truth instead of leaving it inside one specific window.
+- **Non-technical collaborators working on long-running projects**: In research, writing, product, content, operations, and similar work, not everyone reads code or long chat logs, but everyone still needs to know where the project stands.
+- **Research writing and document collaboration**: Keep judgment, evidence, decisions, and next focus from drifting apart.
+- **Software project coordination**: Keep implementation status, blockers, risks, and next actions visible across sessions.
+- **Mixed long-running work**: If a project spans writing, research, product, code, and operations at the same time, the general continuity path is the safer default.
 
 ## 🗺️ What To Think Of It As
 
 If this is your first time seeing ContextWeave, the easiest mental model is not a pile of internal file names.
 
-> Think of it as a durable project handbook that an AI can safely pick back up later.
+> Think of it as a project handbook that lets whoever picks the work back up continue from the same truth.
 
 That handbook is built around four simple parts:
 
@@ -190,15 +210,25 @@ That is why ContextWeave can do two useful things at once:
 
 ## 🏁 Quick Start
 
-### Recommended: If Your Environment Supports Skills CLI
+If what you care about right now is “how do I connect this to a real project today,” you can follow this path directly without reading everything first.
 
-If your environment supports an open Skills CLI such as [skills.sh](https://skills.sh/docs/cli), you can install directly:
+### Step 1: Pick the setup path that fits you best
+
+#### Option A: I want the fastest possible trial
+
+If your environment supports an open Skills CLI such as [skills.sh](https://skills.sh/docs/cli), the shortest path is to install directly:
 
 ```bash
 npx skills add https://github.com/Frappucc1no/contextweave
 ```
 
-### General Option: Directory-Based Installation
+Best for:
+
+- People who want to try it quickly
+- People already working in the Skills CLI ecosystem
+- People who want to get it running first and decide later whether to keep it long-term
+
+#### Option B: I want to use it long-term inside my existing AI tool
 
 If your AI tool uses a directory-based skills setup, just install the entire repository directory into the appropriate skills folder. Do not copy only `SKILL.md`.
 
@@ -209,20 +239,38 @@ cp -R /path/to/contextweave /path/to/<skills-dir>/contextweave
 ln -s /absolute/path/to/contextweave /path/to/<skills-dir>/contextweave
 ```
 
-### Supported Environments
+Best for:
 
-| Environment | How to install | Best fit |
+- People who want to use it long-term inside tools like `Codex`, `Claude Code`, or other directory-based skill environments
+- People who want to make it a project-level default capability
+- People who want to reuse the same continuity files across multiple tools
+
+### If you are not sure which option to choose
+
+Default recommendation:
+
+- **Want to test quickly**: choose Option A
+- **Want to use it long-term in a real project**: choose Option B
+- **Want to reuse one continuity state across multiple tools**: prefer a project-level or directory-based install
+
+### Common environments
+
+| Environment | Recommended setup | Best when |
 |---|---|---|
-| Skills CLI ecosystem | `npx skills add https://github.com/Frappucc1no/contextweave` | People who want the shortest installation path. |
-| Codex | Install into `.agents/skills/contextweave` | Project-level collaboration and long-running work inside a repository. |
+| Skills CLI ecosystem | `npx skills add https://github.com/Frappucc1no/contextweave` | You want the fastest possible trial. |
+| Codex | Install into `.agents/skills/contextweave` | You want long-running work and project-level collaboration inside a repository. |
 | Claude Code | Install into `~/.claude/skills/contextweave` or `.claude/skills/contextweave` | User-level or project-level installation. |
-| Other tools that support directory-based skills | Install the whole directory into that tool's skills folder | People who want to reuse the same continuity layer across tools. |
+| Other tools that support directory-based skills | Install the whole directory into that tool's skills folder | You want to reuse the same continuity files across tools. |
 
-### The First Minute After Installation
+### Step 2: Do not stop at installation - attach it to a real project immediately
 
-Once the package is installed, the most useful next step is to attach the continuity layer to a real project and confirm that it works.
+Once the package is installed, the most useful next step is not to keep reading. It is this:
 
-**Step 1: Initialize the project**
+> Pick a real project you know you will return to, and connect it now.
+
+That is the fastest way to feel whether it actually solves your problem.
+
+#### Step 1: Initialize the project
 
 If you are already inside the installed `contextweave/` package directory, run:
 
@@ -231,15 +279,15 @@ python3.13 scripts/init_context.py /absolute/path/to/project
 python3.13 scripts/validate_context.py /absolute/path/to/project --json
 ```
 
-**Step 2: Confirm it is active**
+#### Step 2: Confirm it is active
 
 If your environment does not use `python3.13`, replace it with any available Python `3.10+` interpreter.
 
 > When `validate_context.py` returns `"valid": true`, the project has been connected successfully.
 
-**Step 3: Go back to your AI tool and start naturally**
+#### Step 3: Go back to your AI tool and just speak naturally
 
-From there, you can just use natural prompts such as:
+Do not start by memorizing commands. Just use natural prompts such as:
 
 | You can say | Best used when |
 |---|---|
@@ -247,6 +295,14 @@ From there, you can just use natural prompts such as:
 | `restore project context` | You want to restore context first and decide what to do next after that. |
 | `pick up where we left off` | You are returning to the same work after a previous session. |
 | `record today's progress` | You want to capture today's meaningful progress. |
+
+### Then: If you want to use it more seriously over time
+
+Once you have run it on a real project once, these documents will make much more sense:
+
+- Want a default workflow by work type: check `profiles/`
+- Want to understand how the helper runtime works: read [USAGE.md](./USAGE.md)
+- Want the file contract and state structure details: read [references/file-contracts.md](./references/file-contracts.md)
 
 <details>
   <summary><strong>See a Codex project-level install example</strong></summary>
@@ -267,6 +323,23 @@ rsync -a /absolute/path/to/contextweave/ ~/.claude/skills/contextweave/
 ```
 
 </details>
+
+### A simple but practical way to tell whether it is working
+
+If you are not sure whether to use it long-term, the best test is not to read more pages. It is to do this:
+
+1. Pick a project that is already halfway done.
+2. Attach ContextWeave to it.
+3. Come back a day later, or come back with a different model or agent.
+
+If that moment feels noticeably easier because:
+
+- you do not need to restate the background
+- you do not need to dig through a long chat log
+- the current state is easier to align on
+- someone else can step in more easily
+
+then it is valuable for your workflow.
 
 ## ❓ FAQ
 
