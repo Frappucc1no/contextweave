@@ -1,380 +1,283 @@
 <div align="center">
 
-<img src="./docs/images/cw-logo.png" alt="ContextWeave logo" width="280" />
-<h1>🧶 ContextWeave</h1>
+<h1>🧶 RecallLoom</h1>
 
 **A long-running project should not feel like it has to restart every time you switch models, agents, or sessions.**
 
-[![Version](https://img.shields.io/badge/version-v0.2.1-111827)](./skills/contextweave/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.2.2-111827)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/contextweave/package-metadata.json)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
 **English** · [简体中文](./README.zh-CN.md)
 
 </div>
 
-ContextWeave keeps project background, current truth, key progress, and next action inside the workspace, so different models, different agents, and different collaborators can keep working from the same project reality.
+RecallLoom is an installable continuity skill for long-running AI work. You install it once, connect it to a real project, and then simply speak naturally: `continue this project`, `restore project context`, `pick up where we left off`.
 
-## 💡 Why ContextWeave?
+It is not another dashboard, and it is not a private memory silo locked inside one platform. RecallLoom keeps a small shared continuity surface inside the workspace itself, so the next model, the next agent, or the next collaborator can resume from the same project reality instead of rebuilding it from chat history.
 
-If you are already mixing `Claude Code`, `Codex`, `Gemini CLI`, `Qwen Code`, or even running multiple agents on the same project, you have probably felt some of these problems already:
+<!-- Suggested image slot: ./docs/images/readme-hero-system.png -->
 
-- Every time you switch models, you end up re-explaining the project.
-- Every time you hand work to a new agent, the why behind previous decisions starts to disappear.
-- Platform memory only works inside that platform, so the moment the project moves, the memory breaks apart too.
-- Every new collaborator has to figure out what is actually true right now.
-- The longer a project runs, the more historical discussion, temporary ideas, and current conclusions blur together.
+## 💡 Why RecallLoom?
 
-What slows long-running AI work down is often not weak model quality. It is **unstable project continuity**.
+If you already switch between `Claude Code`, `Codex`, `Gemini CLI`, `Qwen Code`, or hand work to fresh sessions, you have probably felt some version of this already:
 
-ContextWeave does not depend on a single chat window, and it does not ask you to trust a platform's private memory as the source of truth. Instead, it puts a small, explicit, reviewable continuity layer back into the project workspace itself, so that whoever picks the project up next can quickly answer four practical questions:
+- Every tool switch comes with a restart tax.
+- Every new agent loses part of the project's why.
+- Platform-native memory stops being useful the moment the work moves.
+- New collaborators cannot tell what is actually true right now.
+- Long-running work turns into a blur of history, half-finished ideas, and current conclusions.
 
-- 🎯 **Project purpose**: What is this project actually trying to do?
-- 📍 **Current truth**: What is true right now?
-- 🧗 **Progress so far**: What important milestones have already happened?
-- 🚀 **Next action**: What is the most sensible thing to do next?
+What slows long-running AI work down is often not weak model quality. It is **broken project continuity**.
 
-<p align="center">
-  <img src="./docs/images/1.png" alt="Without and with ContextWeave comparison" />
-</p>
+RecallLoom gives the project a place to keep its own memory in plain files inside the workspace, so whoever picks the work up next can recover the essentials without reconstructing the whole story from scratch.
 
-## ✅ What You Get Right Away
+## ✅ What Changes Once You Use It
 
-- **You stop re-explaining the project every time you switch models**: key background, current state, progress, and next action already live in the workspace.
-- **You stop relying on chat history when switching agents**: the current truth of the project no longer lives only in the previous window.
-- **New collaborators can join the work more easily**: they do not need to read a long diff or a giant thread first just to understand where the project stands.
-- **“What is true now” becomes its own object**: instead of mixing current conclusions with old discussion and temporary ideas.
-- **Long-running work becomes file-carried instead of memory-carried**: whoever picks the project back up can align on truth first, then continue.
+- **Switching models feels less like restarting**: the key background, current state, progress, and next step already live with the project.
+- **Fresh agents can enter faster**: they do not have to infer today's truth from yesterday's thread.
+- **Collaboration gets easier**: new people can understand where the project stands without reading everything that ever happened.
+- **“What is true now” becomes visible**: current reality stops getting buried under old discussion.
+- **Resuming work feels calmer**: you return to a project that still knows itself.
 
-## ✨ The Core Idea
+## 🆕 What `v0.2.2` Establishes
 
-- **🛡️ File-native by design**: Continuity lives in plain Markdown and JSON inside the workspace, so it is easy to review, version, move, and recover.
-- **⚡ Disciplined cold starts**: Instead of loading all history at once, it starts from the smallest useful continuity set and expands only when needed.
-- **🧠 Layered continuity**: Stable context, current state, machine-readable control files, and milestone history are kept separate to reduce drift.
-- **🔒 Recommendation before overwrite**: It can recommend recovery steps, workday handling, and next reviews without silently rewriting project state.
-- **🧪 Built-in write guardrails**: When formal writes do happen, locks and validation help reduce accidental or messy state updates.
-- **📅 Better recovery and resumption**: Workday suggestions, recovery proposals, and review records make long-running projects easier to continue safely.
+`v0.2.2` is the brand-cutover release for RecallLoom.
 
-## 🎯 Who It Fits Best And What Work It Fits Best
+It establishes three things together:
 
-ContextWeave becomes much more valuable when a project has to continue across days, sessions, tools, models, or collaborators.
+- **RecallLoom as the public product name**: the public repository, package metadata, and install-facing docs now align on one brand.
+- **A cleaner install surface**: the installable skill root now lives under `skills/recallloom/`.
+- **A live new default continuity path**: the current helper chain now uses `.recallloom/`, `RecallLoom` managed bridge blocks, and `RecallLoom` managed exclude blocks as the default runtime surface.
 
-<p align="center">
-  <img src="./docs/images/2.png" alt="Typical long-running project scenarios" />
-</p>
+This means `v0.2.2` is not just a copy refresh. It is the first release where the new product name, installation path, and default continuity surface line up as one coherent system.
 
-- **People who mix platforms and models**: If you switch between tools like `Claude Code`, `Codex`, `Gemini CLI`, and `Qwen Code`, it helps reduce the cost of re-explaining the project every time.
-- **People who use multiple agents on the same project**: If you run agents in parallel or keep handing work to fresh sessions, it helps stabilize project truth instead of leaving it inside one specific window.
-- **Non-technical collaborators working on long-running projects**: In research, writing, product, content, operations, and similar work, not everyone reads code or long chat logs, but everyone still needs to know where the project stands.
-- **Research writing and document collaboration**: Keep judgment, evidence, decisions, and next focus from drifting apart.
-- **Software project coordination**: Keep implementation status, blockers, risks, and next actions visible across sessions.
-- **Mixed long-running work**: If a project spans writing, research, product, code, and operations at the same time, the general continuity path is the safer default.
+## 🧭 The Easiest Way To Think About It
 
-## 🗺️ What To Think Of It As
+> Think of RecallLoom as a project handbook that stays with the project, not with one session.
 
-If this is your first time seeing ContextWeave, the easiest mental model is not a pile of internal file names.
+That handbook makes four things easy to recover:
 
-> Think of it as a project handbook that lets whoever picks the work back up continue from the same truth.
+- **What this project is**
+- **What is true right now**
+- **What important progress has happened**
+- **What the next sensible move is**
 
-That handbook is built around four simple parts:
+You do not need to memorize internal file names to understand the value. The point is simply that the project stays understandable across time, tools, and handoffs.
 
-- **One page of context**: So the AI knows what this project is.
-- **One page of current state**: So the AI knows what is true right now.
-- **A running record of progress**: So the AI knows what has actually happened.
-- **A layer of read/write guardrails**: So the AI knows how to read carefully and when to write carefully.
+## 🎯 Who It Fits Best
 
-```mermaid
-flowchart TB
-    A["A long-running AI project"] --> B["Project context\nhelps the AI understand the work quickly"]
-    A --> C["Current state\nhelps the AI align with the latest truth"]
-    A --> D["Progress records\nhelps the AI see what has already happened"]
-    A --> E["Read/write guardrails\nhelps the AI avoid messy reads and writes"]
-```
+RecallLoom becomes much more valuable when a project has to continue across days, sessions, tools, models, or collaborators.
 
-## 🧱 How The Architecture Is Layered
+- **People who mix platforms and models**: move between tools without paying the full restart cost every time.
+- **People who use multiple agents on the same project**: keep the project grounded even when fresh sessions keep entering the work.
+- **Research and writing work**: keep source-backed thinking, progress, and open questions from drifting apart.
+- **Product and document collaboration**: keep scope, decisions, and next actions easier to recover.
+- **Software project coordination**: keep status, blockers, and implementation direction visible across sessions.
+- **Mixed long-running work**: when a project spans writing, product, code, and operations at the same time, the general continuity path is the safest default.
 
-Under the hood, ContextWeave is really solving four different problems:
+## 🧩 Built-In Work Modes
 
-```mermaid
-flowchart TD
-    L1["Layer 1: Project context\nQuestion: what is this project?"] --> L2["Layer 2: Current state\nQuestion: what is true right now?"]
-    L2 --> L3["Layer 3: Progress records\nQuestion: what important things have happened?"]
-    L3 --> L4["Support layer: Control and safety\nQuestion: how should this be read and written safely?"]
-```
+RecallLoom ships with four built-in work modes so the same continuity idea can fit different project shapes. If you are unsure, start with the general mode.
 
-| Layer | The question it answers | What the reader gets |
+| Work mode | Best when | What it helps keep steady |
 |---|---|---|
-| Project context | What is this project? | New sessions do not need to rediscover the background from scratch. |
-| Current state | What is true right now? | It becomes much easier to align on the latest facts. |
-| Progress records | What important things have happened? | Completed work is easier to separate from unfinished discussion. |
-| Control and safety | How should this be read and written safely? | Recovery gets steadier, and formal writes get more careful. |
+| General continuity | The project mixes research, writing, product, code, or operations | The overall project reality, without over-assuming the project shape |
+| Research writing | The work is driven by sources, claims, evidence, and long-form writing | Claims, evidence, and writing progress |
+| Product docs | The work is driven by PRDs, RFCs, strategy docs, and stakeholder alignment | Scope, decisions, and open questions |
+| Software coordination | The work is driven by engineering planning, repo execution, and implementation follow-through | Status, blockers, and next actions |
 
-### 1. Project Context Layer
+Typical natural-language triggers once the skill is installed:
 
-This layer stores the things that should not change often, but still shape later decisions: project goals, current phase, boundaries, constraints, and key grounding information.
+- `continue this project`
+- `restore project context`
+- `pick up where we left off`
+- `record today's progress`
 
-Its purpose is simple: when a new session joins the project, the AI should not need to ask all over again what the work is about.
+<!-- Suggested image slot: ./docs/images/readme-profile-strip.png -->
 
-### 2. Current State Layer
+## ✨ How It Stays Useful Without Becoming Heavy
 
-This layer stores the most trustworthy current judgment: the facts that currently hold, the risks that matter now, the open questions, and the next focus.
+RecallLoom works because it keeps a few kinds of project reality separate instead of blending everything into one giant note.
 
-It solves a common problem: the AI does not have to guess the latest state from a pile of old conversation.
-
-### 3. Progress Record Layer
-
-This layer keeps the important things that actually happened, not every passing discussion fragment. It works more like a milestone trail than a backup of chat history.
-
-That makes it easier for the AI to distinguish between "this was really done" and "this was only discussed before."
-
-### 4. Control And Safety Layer
-
-This layer is not mainly for humans to read. It exists so tools and helper scripts can keep the continuity layer orderly. It mainly helps an agent do four things:
-
-- **What should be read first**: Avoid loading the entire history up front.
-- **Whether the current context is fresh enough**: Reduce the risk of continuing from stale state.
-- **When something should be reviewed before writing**: Make formal updates safer.
-- **How to be more careful during formal writes**: Lower the chance of messy or conflicting state changes.
-
-## 🗂️ How That Maps To Files
-
-The four layers above are a reader-friendly model. In the actual package, they map onto files like this:
-
-```mermaid
-flowchart LR
-    A["Project context layer"] --> A1["context_brief.md"]
-    B["Current state layer"] --> B1["rolling_summary.md"]
-    C["Progress record layer"] --> C1["daily_logs/YYYY-MM-DD.md"]
-    D["Control and safety layer"] --> D1["config.json / state.json / optional local override file"]
-```
-
-| Actual file | Role |
+| Part of the handbook | What it helps the next session recover |
 |---|---|
-| `context_brief.md` | Stores stable background and long-lived project framing. |
-| `rolling_summary.md` | Stores the current snapshot the next session should align to first. |
-| `daily_logs/YYYY-MM-DD.md` | Stores milestone evidence and meaningful progress by date. |
-| `config.json`, `state.json`, and the optional local override file | Help tools read in the right order and write more carefully. |
+| Project explainer | What this project is and how to approach it |
+| Current snapshot | What is true right now |
+| Progress trail | What actually happened, not just what was discussed |
+| Safety rail | When to read more carefully and when to write more carefully |
 
-ContextWeave also includes a deliberately limited companion area for recovery proposals and review records. Its job is to keep those intermediate materials separate from the project's core truth files, so recovery stays clear and reviewable.
+So instead of asking a new session to read everything, you give it a smaller, more stable surface to stand on first.
 
-### At A Glance: What Shows Up In Your Project
+<!-- Suggested image slot: ./docs/images/readme-architecture-map.png -->
 
-By default, ContextWeave keeps a small continuity set in your project rather than scattering lots of loose cache files around.
+<details>
+  <summary><strong>See the underlying files</strong></summary>
+
+| Plain-English part | Under the hood |
+|---|---|
+| Project explainer | `context_brief.md` |
+| Current snapshot | `rolling_summary.md` |
+| Progress trail | `daily_logs/YYYY-MM-DD.md` |
+| Safety rail | `config.json`, `state.json`, optional `update_protocol.md` |
 
 ```text
 PROJECT_ROOT/
 ├── your-project-files...
-└── .contextweave/                  # or contextweave/
-    ├── config.json
-    ├── state.json
+└── .recallloom/                    # or recallloom/
     ├── context_brief.md
     ├── rolling_summary.md
-    ├── local override file        # optional
     ├── daily_logs/
-    │   └── YYYY-MM-DD.md
-    └── companion/                 # appears only when needed
-        └── recovery/
-            ├── proposals/
-            ├── review_log/
-            └── archive/
+    ├── config.json
+    ├── state.json
+    ├── update_protocol.md          # optional
+    └── companion/                  # appears only when needed
 ```
 
-An easier way to read that structure:
+</details>
 
-| File or directory | Plain-English meaning |
-|---|---|
-| `context_brief.md` | The project explainer that tells the AI what this work is. |
-| `rolling_summary.md` | The working status board that tells the AI what is true now and what comes next. |
-| `daily_logs/` | The progress record that shows what has actually happened. |
-| `config.json` and `state.json` | The underlying settings and state that make tool behavior more stable. |
-| `companion/` | A separate area for recovery proposals and review records, so they do not mix into the core truth files. |
+## 🚀 Quick Start
 
-If you are using ContextWeave normally, this small set of files is usually the main continuity surface you will see in the project.
+If you want to know whether RecallLoom is useful for you, the fastest test is simple:
 
-## 🔄 How A New Session Picks The Project Back Up
+1. Install it.
+2. Attach it to a real project you know you will come back to.
+3. Return later with a different session, model, or agent.
 
-The point is not to read every historical artifact. The point is to read the minimum useful continuity surface first, then expand only when needed.
+If that return moment feels noticeably easier, it is doing its job.
 
-```mermaid
-flowchart LR
-    A["A new session enters the project"] --> B["Read the minimum continuity set first"]
-    B --> C["Judge whether the current state is still trustworthy"]
-    C --> D["Expand into more history only when the task needs it"]
-    D --> E["Recommend first, then decide whether a formal write is needed"]
-```
+### Step 1: Install it
 
-That is why ContextWeave can do two useful things at once:
+#### Option A: Fastest possible trial
 
-- **Faster cold starts**: New sessions can get useful context more quickly.
-- **More careful formal writes**: Important updates are less likely to drift or land in the wrong place.
-
-## 🏁 Quick Start
-
-If what you care about right now is “how do I connect this to a real project today,” you can follow this path directly without reading everything first.
-
-### Step 1: Pick the setup path that fits you best
-
-#### Option A: I want the fastest possible trial
-
-If your environment supports an open Skills CLI such as [skills.sh](https://skills.sh/docs/cli), the shortest path is to install directly:
+If your environment supports an open Skills CLI such as [skills.sh](https://skills.sh/docs/cli), install directly:
 
 ```bash
-npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave
+npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
 ```
 
-Best for:
+#### Option B: Long-term use inside your existing AI tool
 
-- People who want to try it quickly
-- People already working in the Skills CLI ecosystem
-- People who want to get it running first and decide later whether to keep it long-term
-
-#### Option B: I want to use it long-term inside my existing AI tool
-
-If your AI tool uses a directory-based skills setup, install the actual skill directory into the appropriate skills folder. Do not copy only `SKILL.md`.
+If your tool uses a directory-based skills setup, install the whole package directory into the appropriate skills folder:
 
 ```bash
-cp -R /path/to/contextweave/skills/contextweave /path/to/<skills-dir>/contextweave
+cp -R /path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/recallloom
 
 # or
-ln -s /absolute/path/to/contextweave/skills/contextweave /path/to/<skills-dir>/contextweave
+ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/recallloom
 ```
 
-Best for:
+### Step 2: Attach it to a real project
 
-- People who want to use it long-term inside tools like `Codex`, `Claude Code`, or other directory-based skill environments
-- People who want to make it a project-level default capability
-- People who want to reuse the same continuity files across multiple tools
-
-### If you are not sure which option to choose
-
-Default recommendation:
-
-- **Want to test quickly**: choose Option A
-- **Want to use it long-term in a real project**: choose Option B
-- **Want to reuse one continuity state across multiple tools**: prefer a project-level or directory-based install
-
-### Common environments
-
-| Environment | Recommended setup | Best when |
-|---|---|---|
-| Skills CLI ecosystem | `npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave` | You want the fastest possible trial. |
-| Codex | Install into `.agents/skills/contextweave` | You want long-running work and project-level collaboration inside a repository. |
-| Claude Code | Install into `~/.claude/skills/contextweave` or `.claude/skills/contextweave` | User-level or project-level installation. |
-| Other tools that support directory-based skills | Install the whole directory into that tool's skills folder | You want to reuse the same continuity files across tools. |
-
-### Step 2: Do not stop at installation - attach it to a real project immediately
-
-Once the package is installed, the most useful next step is not to keep reading. It is this:
-
-> Pick a real project you know you will return to, and connect it now.
-
-That is the fastest way to feel whether it actually solves your problem.
-
-#### Step 1: Initialize the project
-
-If you are already inside the installed `contextweave/` package directory, or inside `skills/contextweave/` in a source checkout, run:
+If you are already inside the installed `recallloom/` package directory, or inside `skills/recallloom/` in a source checkout, run:
 
 ```bash
 python3.13 scripts/init_context.py /absolute/path/to/project
 python3.13 scripts/validate_context.py /absolute/path/to/project --json
 ```
 
-#### Step 2: Confirm it is active
-
 If your environment does not use `python3.13`, replace it with any available Python `3.10+` interpreter.
 
-> When `validate_context.py` returns `"valid": true`, the project has been connected successfully.
+When `validate_context.py` returns `"valid": true`, the project has been connected successfully.
 
-#### Step 3: Go back to your AI tool and just speak naturally
+### Step 3: Go back to your AI tool and speak naturally
 
-Do not start by memorizing commands. Just use natural prompts such as:
+You do not need to memorize special commands first. Start with prompts such as:
 
 | You can say | Best used when |
 |---|---|
 | `continue this project` | The project already has continuity files and you want to keep moving. |
 | `restore project context` | You want to restore context first and decide what to do next after that. |
 | `pick up where we left off` | You are returning to the same work after a previous session. |
-| `record today's progress` | You want to capture today's meaningful progress. |
+| `record today's progress` | You want to capture meaningful progress in the continuity files. |
 
-### Then: If you want to use it more seriously over time
+## 📦 If You Want The Skill-Package View
 
-Once you have run it on a real project once, these documents will make much more sense:
-
-- Want a default workflow by work type: check [skills/contextweave/profiles/](./skills/contextweave/profiles/)
-- Want to understand how the helper runtime works: read [USAGE.md](./USAGE.md)
-- Want the file contract and state structure details: read [skills/contextweave/references/file-contracts.md](./skills/contextweave/references/file-contracts.md)
+Most people do not need the internal package shape on first read. When you do want the install and integration view, here it is:
 
 <details>
-  <summary><strong>See a Codex project-level install example</strong></summary>
+  <summary><strong>See the package shape</strong></summary>
 
-```bash
-mkdir -p .agents/skills
-ln -s /absolute/path/to/contextweave/skills/contextweave .agents/skills/contextweave
+```text
+recallloom/
+├── SKILL.md
+├── profiles/
+├── references/
+├── scripts/
+├── package-metadata.json
+└── ...
 ```
+
+| Part | Role |
+|---|---|
+| `SKILL.md` | Agent-facing entrypoint and default workflow |
+| `profiles/` | Guidance for different project shapes |
+| `references/` | Protocol details, file contracts, and playbooks |
+| `scripts/` | Helpers for init, validation, recovery, and guarded writes |
+| `package-metadata.json` | Version and capability metadata |
 
 </details>
 
 <details>
-  <summary><strong>See a Claude Code user-level install example</strong></summary>
+  <summary><strong>See package facts and runtime assumptions</strong></summary>
 
-```bash
-mkdir -p ~/.claude/skills/contextweave
-rsync -a /absolute/path/to/contextweave/skills/contextweave/ ~/.claude/skills/contextweave/
-```
+### Package Facts
+
+<!-- RecallLoom metadata sync start: package-metadata -->
+- package version: `0.2.2`
+- protocol version: `1.0`
+- supported protocol versions:
+  - `1.0`
+<!-- RecallLoom metadata sync end: package-metadata -->
+
+### Runtime Assumptions
+
+<!-- RecallLoom metadata sync start: runtime-assumptions -->
+- Python 3.10 or newer
+- supported workspace languages:
+  - `en`
+  - `zh-CN`
+- supported bridge targets:
+  - `AGENTS.md`
+  - `CLAUDE.md`
+  - `GEMINI.md`
+  - `.github/copilot-instructions.md`
+<!-- RecallLoom metadata sync end: runtime-assumptions -->
 
 </details>
 
-### A simple but practical way to tell whether it is working
+<details>
+  <summary><strong>See common install locations</strong></summary>
 
-If you are not sure whether to use it long-term, the best test is not to read more pages. It is to do this:
+| Environment | Recommended setup | Best when |
+|---|---|---|
+| Skills CLI ecosystem | `npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom` | You want the fastest possible trial. |
+| Codex | Install into `.agents/skills/recallloom` | You want project-level, long-running repository collaboration. |
+| Claude Code | Install into `~/.claude/skills/recallloom` or `.claude/skills/recallloom` | You want user-level or project-level installation. |
+| Other directory-based tools | Install the whole directory into that tool's skills folder | You want to reuse the same continuity files across tools. |
 
-1. Pick a project that is already halfway done.
-2. Attach ContextWeave to it.
-3. Come back a day later, or come back with a different model or agent.
-
-If that moment feels noticeably easier because:
-
-- you do not need to restate the background
-- you do not need to dig through a long chat log
-- the current state is easier to align on
-- someone else can step in more easily
-
-then it is valuable for your workflow.
-
-### If an update behaves unexpectedly
-
-Remove and reinstall:
-
-```bash
-npx skills remove contextweave
-npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave
-```
+</details>
 
 ## ❓ FAQ
 
 <details>
   <summary><strong>Will it automatically edit my project code?</strong></summary>
-  <p>No. It is not designed to silently take over your application code. Its main concern is the continuity layer itself, and when formal writes happen, they are framed around explicit triggers and safer update paths.</p>
+  <p>No. Its primary concern is the continuity layer itself, and formal writes are meant to happen through explicit triggers and safer update paths.</p>
 </details>
 
 <details>
   <summary><strong>Can I attach it to a project that is already in progress?</strong></summary>
-  <p>Yes. That is one of the best use cases: you can add stable background, current state, and important progress to a project that is already moving, so future sessions can continue more easily.</p>
+  <p>Yes. That is one of the best use cases: add stable background, current state, and important progress to a project that is already moving so future sessions can continue more easily.</p>
 </details>
 
 <details>
   <summary><strong>Is it only for coding projects?</strong></summary>
-  <p>No. It also works well for research writing, product document collaboration, software project coordination, and mixed long-running projects. When a project does not clearly fit a specialized mode, the general continuity path is the safest default.</p>
+  <p>No. It also works well for research writing, product document collaboration, software project coordination, and mixed long-running projects. If a project does not clearly fit a specialized mode, the general continuity path is the safest default.</p>
 </details>
 
 <details>
   <summary><strong>Do I need to maintain a lot of files every day?</strong></summary>
-  <p>No. The goal is a minimum useful continuity set, not turning every session into documentation work. Only the durable state that is actually worth keeping should be recorded.</p>
-</details>
-
-<details>
-  <summary><strong>Will it leave a lot of stuff in my project?</strong></summary>
-  <p>Usually not. The core is a small continuity set plus date-based progress records. Recovery proposals and review notes are also kept in their own area so the project tree stays cleaner.</p>
+  <p>No. The goal is a minimum useful continuity set, not turning every session into documentation work. Only durable state that is actually worth keeping should be recorded.</p>
 </details>
 
 <details>
@@ -389,14 +292,15 @@ npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave
 - **More stable cold starts**: Starts from the minimum useful continuity surface so new sessions can get into context faster.
 - **Cleaner continuity asset organization**: Keeps continuity files, recovery materials, and auxiliary records in clearer places.
 - **More reliable formal-write protection**: Adds stronger guardrails around writes that land in durable project state.
+- **Brand and runtime alignment in `v0.2.2`**: The public brand, install path, and default continuity surface now point to `RecallLoom`.
 
-## 📚 Advanced Reading And Core References
+## 📚 Further Reading
 
-Once your project is using ContextWeave, these are the core documents to read if you want to understand the write contract more deeply or build on top of it:
-
-- 🤖 [**SKILL.md**](./skills/contextweave/SKILL.md): Best when you want to see how an agent is expected to enter ContextWeave, choose the right profile, and use it in practice.
-- 📖 [**USAGE.md**](./USAGE.md): Best when you want helper runtime usage details and human-in-the-loop guidance.
-- 🔐 [**references/file-contracts.md**](./skills/contextweave/references/file-contracts.md): Best when you want to understand what counts as a valid state update at the file-contract level.
+- [SKILL.md](./skills/recallloom/SKILL.md)
+- [USAGE.md](./USAGE.md)
+- [profiles/](./skills/recallloom/profiles/)
+- [file-contracts.md](./skills/recallloom/references/file-contracts.md)
+- [protocol.md](./skills/recallloom/references/protocol.md)
 
 ## 📄 License
 

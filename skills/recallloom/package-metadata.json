@@ -1,0 +1,20 @@
+{
+  "package_name": "recallloom",
+  "display_name": "RecallLoom",
+  "package_version": "0.2.2",
+  "protocol_version": "1.0",
+  "supported_protocol_versions": [
+    "1.0"
+  ],
+  "minimum_python_version": "3.10",
+  "supported_workspace_languages": [
+    "en",
+    "zh-CN"
+  ],
+  "supported_bridge_targets": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    ".github/copilot-instructions.md"
+  ]
+}

@@ -1,6 +1,6 @@
-# Using ContextWeave
+# Using RecallLoom
 
-ContextWeave is an installable skill package, not a standalone application binary.
+RecallLoom is an installable skill package, not a standalone application binary.
 
 The package is meant to be:
 
@@ -15,7 +15,7 @@ Typical installation patterns include:
 The exact installation path depends on the host agent tool.
 This package itself stays host-agnostic:
 
-- install the whole `skills/contextweave/` directory from the source repository as one skill package
+- install the whole `skills/recallloom/` directory from the source repository as one skill package
 - place it in the directory your host already uses for installed skills
 - let the host discover and trigger `SKILL.md` through its standard skill mechanism
 
@@ -23,13 +23,13 @@ This installable package does not bundle host-specific adapter docs or a custom 
 
 ## Installation Shape
 
-The installed package directory should keep the name `contextweave/`.
+The installed package directory should keep the name `recallloom/`.
 
 This file is the operator guide for repository-level installation guidance and helper-script use.
 
 If you are reading from a source checkout, the installable skill root lives at:
 
-- `skills/contextweave/`
+- `skills/recallloom/`
 
 The repository root may also contain landing-page READMEs, marketing assets, and other human-facing documentation that are not part of the installed skill directory.
 
@@ -37,7 +37,7 @@ Typical layouts look like:
 
 ```text
 <user-skills-dir>/
-  contextweave/
+  recallloom/
     SKILL.md
     package-metadata.json
     managed-assets.json
@@ -50,7 +50,7 @@ Typical layouts look like:
 
 ```text
 <project-skills-dir>/
-  contextweave/
+  recallloom/
     SKILL.md
     package-metadata.json
     managed-assets.json
@@ -66,30 +66,30 @@ You can install it by copying or symlinking the package directory into a compati
 Examples:
 
 ```bash
-cp -R /path/to/contextweave/skills/contextweave /path/to/<user-skills-dir>/contextweave
+cp -R /path/to/recall-loom/skills/recallloom /path/to/<user-skills-dir>/recallloom
 ```
 
 ```bash
-ln -s /absolute/path/to/contextweave/skills/contextweave /path/to/<project-skills-dir>/contextweave
+ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<project-skills-dir>/recallloom
 ```
 
 If you are using the Skills CLI against the public GitHub repository, the canonical install form is:
 
 ```bash
-npx skills add https://github.com/Frappucc1no/contextweave --skill contextweave
+npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
 ```
 
 Keep the package contents together.
 Do not copy only `SKILL.md` without the accompanying `references/`, `profiles/`, and `scripts/` folders.
 Do not remove `package-metadata.json`; it is the package's version and capability source of truth.
-Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets on the current `0.2.1` release line.
+Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets on the current `0.2.2` release line.
 When building a public release from a source checkout, exclude local metadata and caches such as `.git/`, `__pycache__/`, `*.pyc`, and `.DS_Store`.
 
-For controlled audit or regression checks, you may temporarily point helpers at an alternate managed-assets file by setting `CONTEXTWEAVE_MANAGED_ASSETS_PATH=/absolute/path/to/file.json` for that single command invocation.
+For controlled audit or regression checks, you may temporarily point helpers at an alternate managed-assets file by setting `RECALLLOOM_MANAGED_ASSETS_PATH=/absolute/path/to/file.json` for that single command invocation.
 
 ## Managed Asset Registry
 
-The current `0.2.1` release line ships:
+The current `0.2.2` release line ships:
 
 - `managed-assets.json`
 
@@ -108,7 +108,7 @@ If this file is missing or malformed, treat the package as invalid rather than b
 
 ## Host Expectations
 
-ContextWeave expects a host agent tool that can:
+RecallLoom expects a host agent tool that can:
 
 - read an installed `SKILL.md`
 - follow package-relative references such as `references/...` and `profiles/...`
@@ -118,16 +118,16 @@ ContextWeave expects a host agent tool that can:
 
 ## Concurrency Boundary
 
-ContextWeave does not promise safe arbitrary overlapping writes to the same project workspace.
+RecallLoom does not promise safe arbitrary overlapping writes to the same project workspace.
 
-For the current `0.2.1` release line, the packaged mutating helpers enforce a minimal hard-guard layer:
+For the current `0.2.2` release line, the packaged mutating helpers enforce a minimal hard-guard layer:
 
 - project-scoped write locking
 - atomic replace for managed overwrite-style files
 - revision-aware commits for `context_brief.md`, `rolling_summary.md`, and `update_protocol.md`
 - revision-aware milestone appends for daily logs
 
-For the current `0.2.1` release line:
+For the current `0.2.2` release line:
 
 - read-only helpers may run at any time
 - mutating helpers are serialized single-project operations
@@ -144,9 +144,9 @@ The packaged helper scripts currently assume:
 - a UTF-8 capable filesystem environment
 - a file-based project workspace that the host agent can read and update
 
-Current package `0.2.1` / protocol `1.0` runtime limits:
+Current package `0.2.2` / protocol `1.0` runtime limits:
 
-<!-- ContextWeave metadata sync start: runtime-requirements -->
+<!-- RecallLoom metadata sync start: runtime-requirements -->
 - minimum Python version: `3.10`
 - supported `workspace_language` values:
   - `en`
@@ -156,7 +156,7 @@ Current package `0.2.1` / protocol `1.0` runtime limits:
   - `CLAUDE.md`
   - `GEMINI.md`
   - `.github/copilot-instructions.md`
-<!-- ContextWeave metadata sync end: runtime-requirements -->
+<!-- RecallLoom metadata sync end: runtime-requirements -->
 
 If your host environment cannot meet those assumptions, treat the helper scripts as unsupported rather than best-effort.
 
@@ -172,23 +172,23 @@ The exact command name is host-specific:
 Point that interpreter at the installed package path:
 
 ```text
-<python-3.10+ interpreter> /path/to/contextweave/scripts/init_context.py ...
-<python-3.10+ interpreter> /path/to/contextweave/scripts/validate_context.py ...
-<python-3.10+ interpreter> /path/to/contextweave/scripts/remove_context.py ...
-<python-3.10+ interpreter> /path/to/contextweave/scripts/manage_entry_bridge.py ...
+<python-3.10+ interpreter> /path/to/recallloom/scripts/init_context.py ...
+<python-3.10+ interpreter> /path/to/recallloom/scripts/validate_context.py ...
+<python-3.10+ interpreter> /path/to/recallloom/scripts/remove_context.py ...
+<python-3.10+ interpreter> /path/to/recallloom/scripts/manage_entry_bridge.py ...
 ```
 
 Concrete examples:
 
 ```bash
 # macOS/Linux
-python3.13 /path/to/contextweave/scripts/init_context.py ...
+python3.13 /path/to/recallloom/scripts/init_context.py ...
 
 # Windows
-py -3.13 \path\to\contextweave\scripts\init_context.py ...
+py -3.13 \path\to\recallloom\scripts\init_context.py ...
 ```
 
-If you are already inside the installed `contextweave/` package directory, or inside `skills/contextweave/` in a source checkout, the equivalent shorter form is:
+If you are already inside the installed `recallloom/` package directory, or inside `skills/recallloom/` in a source checkout, the equivalent shorter form is:
 
 ```text
 <python-3.10+ interpreter> scripts/init_context.py ...
@@ -197,7 +197,7 @@ If you are already inside the installed `contextweave/` package directory, or in
 Do not assume the scripts are executable directly as `./script.py` and do not assume the host agent runs them automatically.
 
 These scripts are helper utilities that ship inside the skill package.
-They are not the primary user interface of ContextWeave.
+They are not the primary user interface of RecallLoom.
 
 ## Helper Script Map
 
@@ -205,11 +205,11 @@ The installable package currently ships these user-facing helper scripts:
 
 ### `init_context.py`
 
-- Purpose: initialize a new ContextWeave sidecar in a project
+- Purpose: initialize a new RecallLoom sidecar in a project
 - Typical use: first-time setup
 - Writes files: yes
 - Safety model: refuses conflicting storage modes and refuses partial or untrusted pre-existing sidecar content; a pre-existing sidecar must already contain both `config.json` and `state.json`, and that `state.json` must pass the shared state contract loader; rerunning against an already healthy workspace is idempotent, and `--force` does not reset an existing healthy sidecar
-- Hidden-mode side effect: may add a managed ContextWeave block to `.git/info/exclude`; if that managed block is already malformed, initialization now refuses instead of silently treating it as healthy
+- Hidden-mode side effect: may add a managed RecallLoom block to `.git/info/exclude`, using the `.recallloom/` entry; if that managed block is already malformed, initialization now refuses instead of silently treating it as healthy
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 - Rerun note: `init_context.py` is for first-time setup, not for rebuilding current project state; use revision-aware helpers for later content changes
 - `--create-daily-log` note: this flag creates an empty daily-log scaffold for today; it is optional and should not be treated as proof that a milestone already happened
@@ -224,7 +224,7 @@ The installable package currently ships these user-facing helper scripts:
 
 ### `detect_project_root.py`
 
-- Purpose: resolve the current ContextWeave project root and storage root
+- Purpose: resolve the current RecallLoom project root and storage root
 - Typical use: debugging, tooling, integration checks
 - Writes files: no
 - Safety model: read-only
@@ -271,7 +271,7 @@ The installable package currently ships these user-facing helper scripts:
 
 ### `recommend_workday.py`
 
-- Purpose: recommend the current logical workday and append target date for a ContextWeave workspace
+- Purpose: recommend the current logical workday and append target date for a RecallLoom workspace
 - Typical use: cross-day judgment, active-day review, or before choosing a daily-log append date
 - Writes files: no
 - Safety model: read-only recommendation helper; does not mutate sidecar files and does not replace explicit date confirmation for real writes
@@ -279,7 +279,7 @@ The installable package currently ships these user-facing helper scripts:
 - Explicit intent model: `--session-intent` lets the caller elevate the user's current intent into the recommendation decision, using the same recommendation-type vocabulary returned by the helper
 - Date priority model: an explicit `--preferred-date` takes priority over the helper's default suggestion. If the preferred date disagrees with the heuristic result, the helper returns `review_date_before_append`.
 - Project-local override model: if `update_protocol.md` contains explicit workday or time-policy cues, the helper surfaces those cues and may return `review_date_before_append` instead of silently applying the heuristic suggestion
-- Current scope note: the machineized signal set currently includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues. Broader workspace new-day trajectory remains an operator-reviewed signal rather than a separate machine-readable contract in `v0.2.1`.
+- Current scope note: the machineized signal set currently includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues. Broader workspace new-day trajectory remains an operator-reviewed signal rather than a separate machine-readable contract in `v0.2.2`.
 - Relationship to preflight: this helper complements, not replaces, `preflight_context_check.py`; use it when deciding the likely workday path, then still use preflight before formal writes
 
 ### `summarize_continuity_status.py`
@@ -298,7 +298,7 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: stage a prepared recovery proposal into `companion/recovery/proposals/`
 - Typical use: after a human or model has prepared a recovery proposal from user-provided history materials
 - Writes files: yes
-- Safety model: acquires the project write lock, validates the proposal against the minimum `v0.2.1` section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
+- Safety model: acquires the project write lock, validates the proposal against the minimum `v0.2.2` section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
 - Scope note: this helper only manages proposal placement; it does not decide proposal contents and does not promote anything into core continuity files
 
 ### `record_recovery_review.py`
@@ -306,7 +306,7 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: record a prepared review note for a staged recovery proposal under `companion/recovery/review_log/`
 - Typical use: after a human or model reviews a proposal and wants to preserve the review outcome before promotion
 - Writes files: yes
-- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum `v0.2.1` review structure, refuses empty source content, and refuses to overwrite an existing review record
+- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum `v0.2.2` review structure, refuses empty source content, and refuses to overwrite an existing review record
 - Scope note: this helper records review state only; promotion into `rolling_summary.md`, `daily_logs/`, or `context_brief.md` still goes through the normal helper write path
 
 ### `prepare_recovery_promotion.py`
@@ -314,7 +314,7 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: prepare structured safe-write context for a reviewed recovery proposal before promotion into core continuity files
 - Typical use: after a proposal and review record already exist and a model or human is ready to choose durable target content
 - Writes files: no
-- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum `v0.2.1` proposal/review structure
+- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum `v0.2.2` proposal/review structure
 - Output model: returns proposal/review digests plus the current `safe_write_context` for `rolling_summary.md`, `context_brief.md`, and the latest daily-log append cursor
 - Scope note: this helper does not promote anything by itself; it only prepares the promotion context for the existing write helpers
 
@@ -333,32 +333,32 @@ This keeps the split clear:
 - the agent decides what to write
 - the helper scripts refuse stale or overlapping writes when the revision context no longer matches
 - the helper scripts do not act as semantic editors or fact-checkers for the prepared content itself
-- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current `0.2.1` release line
+- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current `0.2.2` release line
 
 ### `remove_context.py`
 
-- Purpose: remove an existing ContextWeave sidecar from a project
+- Purpose: remove an existing RecallLoom sidecar from a project
 - Typical use: uninstall, cleanup for one project, or recovery removal for a damaged workspace
 - Writes files: yes
 - Safety model: preview-first; refuses non-managed assets unless `--force` is explicitly passed; refuses sidecar removal while managed bridge blocks still exist in root entry files
-- Uninstall note: the current `0.2.1` release line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
+- Uninstall note: the current `0.2.2` release line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
 - Recovery note: if normal workspace detection fails, this helper can fall back to recovery discovery; use `--storage-mode hidden|visible` to disambiguate sidecar conflicts
 - Failure note: if sidecar removal succeeds but follow-up cleanup such as `.git/info/exclude` removal fails, the helper reports that partial-cleanup state explicitly instead of hiding it behind a generic failure
-- Hidden-mode side effect: may remove the managed ContextWeave block from `.git/info/exclude`
+- Hidden-mode side effect: may remove the managed RecallLoom block from `.git/info/exclude`
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 
 ### `manage_entry_bridge.py`
 
 - Purpose: preview, apply, or remove thin bridges in supported root entry files
-- Typical use: connect root entry files to ContextWeave continuity files
+- Typical use: connect root entry files to RecallLoom continuity files
 - Writes files: yes
-- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.2.1` release line accepts exactly one bridge target per invocation
+- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.2.2` release line accepts exactly one bridge target per invocation
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 
 ### `unlock_write_lock.py`
 
-- Purpose: inspect or remove a stale project-scoped ContextWeave write lock
-- Typical use: recovery after an interrupted mutating helper leaves `.contextweave.write.lock` behind
+- Purpose: inspect or remove a stale project-scoped RecallLoom write lock
+- Typical use: recovery after an interrupted mutating helper leaves `.recallloom.write.lock` behind
 - Writes files: yes, but only when removing a lock
 - Safety model: preview-first; refuses to remove a lock whose recorded pid still appears alive unless `--force` is explicitly passed
 - Recovery note: this helper can be run from a project subdirectory; it will search upward for the project-root lock path
@@ -375,20 +375,20 @@ Thin bridges only apply to these root entry files:
 Bridge block boundaries:
 
 ```text
-<!-- ContextWeave managed bridge start -->
+<!-- RecallLoom managed bridge start -->
 ...
-<!-- ContextWeave managed bridge end -->
+<!-- RecallLoom managed bridge end -->
 ```
 
 Hidden-sidecar exclude block boundaries:
 
 ```text
-# ContextWeave managed block start
+# RecallLoom managed block start
 ...
-# ContextWeave managed block end
+# RecallLoom managed block end
 ```
 
-Those markers define the ContextWeave-managed region.
+Those markers define the current managed region.
 If they become incomplete, duplicated, or reordered, validation may fail and bridge management should not be treated as healthy.
 
 ### Internal helper module
@@ -398,9 +398,9 @@ If they become incomplete, duplicated, or reordered, validation may fail and bri
 
 ## Typical First Steps
 
-1. Install the whole `skills/contextweave/` directory from the source repository into the skill directory your host already uses.
+1. Install the whole `skills/recallloom/` directory from the source repository into the skill directory your host already uses.
 2. Let the host rediscover skills using its standard skill flow.
-3. Open a terminal in the installed `contextweave/` package directory, or in `skills/contextweave/` if you are working from a source checkout.
+3. Open a terminal in the installed `recallloom/` package directory, or in `skills/recallloom/` if you are working from a source checkout.
 4. Run:
 
 ```bash
