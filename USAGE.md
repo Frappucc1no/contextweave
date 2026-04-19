@@ -239,6 +239,7 @@ The installable package currently ships these user-facing helper scripts:
 - Cold-start note: default behavior now stays on the lighter sidecar-visible freshness path; normal cold start should still restore and review first, not automatically continue project work
 - `--full` note: add this flag when you intentionally want the heavier workspace artifact scan before a higher-confidence write or audit pass
 - `--quick` compatibility note: this flag still exists, but it now just makes the default quick path explicit
+- Current read-side note: this helper now surfaces handoff-first fields such as `active_task_digest`, `blocked_digest`, `latest_relevant_log_digest`, `suggested_handoff_sections`, and `suggested_read_set`
 
 ### `archive_logs.py`
 
@@ -292,6 +293,7 @@ The installable package currently ships these user-facing helper scripts:
 - Workday output model: includes the heuristic recommendation, the applied decision-priority source, and any project-local time-policy cues surfaced from `update_protocol.md`
 - Intent model: accepts the same optional `--session-intent` hint as `recommend_workday.py`, so a status review can incorporate the user's explicit current intent without mutating workspace state
 - Scope note: this helper is an orientation surface, not a write surface; formal writes still require `preflight_context_check.py` plus the normal revision-aware helpers
+- Current read-side note: this helper now shares the same freshness baseline and handoff-first digest fields as `preflight_context_check.py`
 
 ### `stage_recovery_proposal.py`
 
@@ -353,7 +355,17 @@ This keeps the split clear:
 - Typical use: connect root entry files to RecallLoom continuity files
 - Writes files: yes
 - Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.2.2` release line accepts exactly one bridge target per invocation
+- Attach-safety note: bridge text is scanned before apply; obvious prompt overrides, invisible unicode, and secret-exfil patterns hard block the write, while suspicious-but-ambiguous patterns are surfaced as warnings in the scan result
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
+
+### `query_continuity.py`
+
+- Purpose: query current RecallLoom continuity through a read-only recall surface
+- Typical use: retrieve project-relevant continuity without manually reading every managed file
+- Writes files: no
+- Default read boundary: core continuity files first (`rolling_summary.md`, `context_brief.md`, latest active daily log, optional recent daily logs)
+- Output model: returns `hits`, `citations`, `synthesized_recall`, `token_estimate`, `budget_hint`, `continuity_confidence`, `freshness_state`, and `conflict_state`
+- Safety model: attach-safe output is scanned before return; companion is not read by default and no files are written
 
 ### `unlock_write_lock.py`
 
