@@ -99,6 +99,29 @@ UPDATE_PROTOCOL_TIME_POLICY_KEYWORDS = (
     "今天",
 )
 
+DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".idea",
+    ".vscode",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+}
+
+DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_FILES = {
+    ".DS_Store",
+    ".recallloom.write.lock",
+}
+
 
 def load_package_metadata() -> dict:
     try:
@@ -185,6 +208,25 @@ def _load_relative_path_list(payload: dict, *, field: str, source_path: Path) ->
         seen.add(normalized_item)
         normalized.append(normalized_item)
     return normalized
+
+
+def extract_section_text(text: str, section_key: str) -> str:
+    lines = text.splitlines()
+    start_marker = f"<!-- section: {section_key} -->"
+    start_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip() == start_marker:
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return ""
+
+    collected: list[str] = []
+    for line in lines[start_idx:]:
+        if line.strip().startswith("<!-- section: "):
+            break
+        collected.append(line)
+    return "\n".join(collected).strip()
 
 
 def markdown_heading_titles(text: str) -> list[str]:
@@ -417,6 +459,7 @@ SECTION_KEYS = {
         "risks_blockers",
         "recommended_next_step",
     ],
+    "update_protocol": ["project_specific_overrides"],
 }
 
 OPTIONAL_SECTION_KEYS = {
@@ -1795,6 +1838,140 @@ def continuity_confidence_level(
     if summary_revision_is_stale or artifact_newer or not latest_daily_log_exists:
         return "medium"
     return "high"
+
+
+def _digest_excerpt(text: str, *, max_lines: int = 4) -> str | None:
+    lines: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("<!--"):
+            continue
+        stripped = stripped.lstrip("-* ").strip()
+        if not stripped:
+            continue
+        lines.append(stripped)
+        if len(lines) >= max_lines:
+            break
+    if not lines:
+        return None
+    return " | ".join(lines)
+
+
+def continuity_digest_bundle(
+    *,
+    summary_text: str,
+    latest_daily_log_text: str | None = None,
+) -> dict:
+    next_step_text = extract_section_text(summary_text, "next_step")
+    risks_text = extract_section_text(summary_text, "risks_open_questions")
+    active_task_digest = _digest_excerpt(next_step_text)
+    blocked_digest = _digest_excerpt(risks_text)
+
+    latest_relevant_log_digest = None
+    if latest_daily_log_text:
+        log_sections = [
+            extract_section_text(latest_daily_log_text, "work_completed"),
+            extract_section_text(latest_daily_log_text, "key_decisions"),
+            extract_section_text(latest_daily_log_text, "recommended_next_step"),
+        ]
+        latest_relevant_log_digest = _digest_excerpt(
+            "\n".join(section for section in log_sections if section.strip())
+        )
+
+    suggested_handoff_sections: list[str] = []
+    if active_task_digest:
+        suggested_handoff_sections.append("next_step")
+    if blocked_digest:
+        suggested_handoff_sections.append("risks_open_questions")
+    if latest_relevant_log_digest:
+        suggested_handoff_sections.append("latest_daily_log")
+
+    return {
+        "active_task_digest": active_task_digest,
+        "blocked_digest": blocked_digest,
+        "latest_relevant_log_digest": latest_relevant_log_digest,
+        "suggested_handoff_sections": suggested_handoff_sections,
+    }
+
+
+def iter_workspace_artifacts(
+    project_root: Path,
+    storage_root: Path,
+    *,
+    excluded_dirs: set[str] | None = None,
+    excluded_files: set[str] | None = None,
+) -> list[Path]:
+    excluded_dirs = excluded_dirs or DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_DIRS
+    excluded_files = excluded_files or DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_FILES
+    artifacts: list[Path] = []
+    for path in project_root.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            path.relative_to(storage_root)
+            continue
+        except ValueError:
+            pass
+        if path.name in excluded_files:
+            continue
+        rel_path = path.relative_to(project_root)
+        if any(part in excluded_dirs for part in rel_path.parent.parts):
+            continue
+        artifacts.append(path)
+    return artifacts
+
+
+def evaluate_continuity_freshness(
+    *,
+    project_root: Path,
+    storage_root: Path,
+    summary_path: Path,
+    workspace_revision: int,
+    summary_base_workspace_revision: int,
+    latest_daily_log_exists: bool,
+    scan_mode: str = "quick",
+) -> dict:
+    if scan_mode not in {"quick", "full"}:
+        raise ValueError(f"Unsupported scan_mode: {scan_mode}")
+
+    workspace_artifact_scan_performed = scan_mode == "full"
+    latest_workspace_artifact = None
+    workspace_artifact_is_newer = None
+    summary_mtime = summary_path.stat().st_mtime
+
+    if workspace_artifact_scan_performed:
+        latest_workspace_artifact = latest_file(
+            iter_workspace_artifacts(project_root, storage_root)
+        )
+        workspace_artifact_is_newer = (
+            latest_workspace_artifact is not None
+            and latest_workspace_artifact.stat().st_mtime > summary_mtime
+        )
+
+    summary_revision_is_stale = workspace_revision > summary_base_workspace_revision
+    workspace_is_newer = (
+        (workspace_artifact_is_newer if workspace_artifact_is_newer is not None else False)
+        or summary_revision_is_stale
+    )
+    continuity_confidence = continuity_confidence_level(
+        workspace_valid=True,
+        summary_revision_is_stale=summary_revision_is_stale,
+        workspace_artifact_is_newer=workspace_artifact_is_newer,
+        latest_daily_log_exists=latest_daily_log_exists,
+    )
+
+    return {
+        "workspace_artifact_scan_mode": scan_mode,
+        "workspace_artifact_scan_performed": workspace_artifact_scan_performed,
+        "latest_workspace_artifact": latest_workspace_artifact,
+        "workspace_artifact_newer_than_summary": workspace_artifact_is_newer,
+        "summary_revision_stale": summary_revision_is_stale,
+        "workspace_newer_than_summary": workspace_is_newer,
+        "summary_stale": workspace_is_newer,
+        "continuity_confidence": continuity_confidence,
+    }
 
 
 def daily_log_sequence_error(entries: list[DailyLogEntryInfo]) -> str | None:
