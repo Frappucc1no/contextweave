@@ -197,6 +197,7 @@ def supporting_context_window(
                 "path": item["path"],
                 "section": item["section"],
                 "source_type": item["source_type"],
+                "date": item.get("date"),
                 "excerpt": item["excerpt"],
                 "score": item["score"],
             }
@@ -617,7 +618,8 @@ def main() -> None:
             print("\nCitations:")
             for citation in citations:
                 section = f" [{citation['section']}]" if citation["section"] else ""
-                print(f"- {citation['path']}{section}")
+                date_suffix = f" ({citation['date']})" if citation["date"] else ""
+                print(f"- {citation['path']}{section}{date_suffix}")
 
 
 if __name__ == "__main__":
