@@ -102,7 +102,7 @@ See `references/operation-playbooks.md` for the full flow.
 
 ## Current Read-Side Helpers
 
-The current `0.3.0` work branch now has three read-side helper directions worth knowing:
+The current `0.3.0` line now has three read-side helper directions worth knowing:
 
 - `preflight_context_check.py`
   - revision-aware freshness review before formal writes

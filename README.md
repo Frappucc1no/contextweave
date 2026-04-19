@@ -4,7 +4,7 @@
 
 **A long-running project should not feel like it has to restart every time you switch models, agents, or sessions.**
 
-[![Version](https://img.shields.io/badge/version-v0.2.2-111827)](./skills/recallloom/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.3.0-111827)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
@@ -40,17 +40,17 @@ RecallLoom gives the project a place to keep its own memory in plain files insid
 - **“What is true now” becomes visible**: current reality stops getting buried under old discussion.
 - **Resuming work feels calmer**: you return to a project that still knows itself.
 
-## 🆕 What `v0.2.2` Establishes
+## 🆕 What `v0.3.0` Establishes
 
-`v0.2.2` is the brand-cutover release for RecallLoom.
+`v0.3.0` is the read-side hardening release for RecallLoom.
 
-It establishes three things together:
+It builds on the `v0.2.2` brand-cutover foundation and establishes three things together:
 
-- **RecallLoom as the public product name**: the public repository, package metadata, and install-facing docs now align on one brand.
-- **A cleaner install surface**: the installable skill root now lives under `skills/recallloom/`.
-- **A live new default continuity path**: the current helper chain now uses `.recallloom/`, `RecallLoom` managed bridge blocks, and `RecallLoom` managed exclude blocks as the default runtime surface.
+- **A query-oriented continuity recall surface**: `query_continuity.py` can now surface relevant continuity with citations, confidence, freshness, conflict state, and bounded supporting context.
+- **A stronger shared read-side baseline**: `preflight`, `status`, and `query_continuity` now align on the same freshness and digest primitives instead of drifting into separate interpretations.
+- **A safer attach-ready recall path**: read-side outputs now surface `update_protocol.md`, bound the contextual window, and run the attached-text scan across the returned recall surface.
 
-This means `v0.2.2` is not just a copy refresh. It is the first release where the new product name, installation path, and default continuity surface line up as one coherent system.
+This means `v0.3.0` is the first release where RecallLoom has both a unified brand/runtime surface and a materially stronger read-side recall layer for long-running work.
 
 ## 🧭 The Easiest Way To Think About It
 
@@ -224,7 +224,7 @@ recallloom/
 ### Package Facts
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- package version: `0.2.2`
+- package version: `0.3.0`
 - protocol version: `1.0`
 - supported protocol versions:
   - `1.0`
@@ -287,12 +287,12 @@ recallloom/
 
 ## 🌟 Current Version Highlights
 
+- **Query-oriented continuity recall**: `query_continuity.py` can return bounded, cited recall instead of forcing the next session to manually scan every continuity file.
+- **Shared freshness and conflict surfacing**: `preflight`, `status`, and `query_continuity` now expose a more coherent read-side picture before writes or handoffs.
+- **Safer attach-ready outputs**: read-side recall now stays bounded, surfaces project-local override review, and runs through the attached-text scan before return.
 - **Workday recommendation**: Helps an agent judge which day of work is most appropriate to continue, reducing confusion across day boundaries.
 - **Recovery proposals and review records**: Makes historical recovery clearer and easier to review collaboratively.
-- **More stable cold starts**: Starts from the minimum useful continuity surface so new sessions can get into context faster.
-- **Cleaner continuity asset organization**: Keeps continuity files, recovery materials, and auxiliary records in clearer places.
-- **More reliable formal-write protection**: Adds stronger guardrails around writes that land in durable project state.
-- **Brand and runtime alignment in `v0.2.2`**: The public brand, install path, and default continuity surface now point to `RecallLoom`.
+- **Brand and runtime alignment from `v0.2.2` remains the foundation**: the public brand, install path, and default continuity surface stay aligned on `RecallLoom`.
 
 ## 📚 Further Reading
 

@@ -127,7 +127,7 @@ Current supported `workspace_language` values for protocol `1.0`:
 Managed asset registry note:
 
 - protocol `1.0` core semantics remain defined by this document
-- the current `0.2.2` release line additionally ships `recallloom/managed-assets.json`
+- the current `0.3.0` release line additionally ships `recallloom/managed-assets.json`
   as the single declaration source for:
   - required managed files
   - optional managed files
@@ -213,7 +213,7 @@ Role:
 
 - optional managed namespace for companion-layer assets
 
-Current `0.2.2` release-line purpose:
+Current `0.3.0` release-line purpose:
 
 - hold recovery proposals and related review records under the sidecar without creating a second root
 
@@ -225,7 +225,7 @@ Contract rule:
 - allowed child directories and dynamic file patterns are declared by
   `recallloom/managed-assets.json`
 
-Current recognized subtree in this `0.2.2` release line:
+Current recognized subtree in this `0.3.0` release line:
 
 - `STORAGE_ROOT/companion/recovery/`
 
@@ -450,6 +450,6 @@ Operational rule:
 
 - cold-start flow should check this file before applying the default read order
 - write-planning flow should check this file before choosing the final write set
-- in the current `0.2.2` release line, `preflight_context_check.py`, `archive_logs.py`, and bridge guidance surface this file for review rather than automatically executing its natural-language rules
+- in the current `0.3.0` release line, `preflight_context_check.py`, `archive_logs.py`, and bridge guidance surface this file for review rather than automatically executing its natural-language rules
 - revision-aware write helpers (`commit_context_file.py`, `append_daily_log_entry.py`) do not reread or execute natural-language override prose automatically
 - revision-aware helper commits should keep this file's `file-state` marker and `state.json.update_protocol_revision` in sync
