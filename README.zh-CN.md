@@ -2,9 +2,9 @@
 
 <h1>🧶 RecallLoom</h1>
 
-**一个长期项目，不该因为切模型、换智能体、跨会话，就一次次重新开始。**
+**面向长期 AI 工作的可迁移项目连续性层。**
 
-[![Version](https://img.shields.io/badge/version-v0.2.2-111827)](./skills/recallloom/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.3.0-111827)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
@@ -12,7 +12,7 @@
 
 </div>
 
-RecallLoom 是一个面向长期 AI 工作的可安装 continuity skill。把它接进一个真实项目之后，你就可以直接用自然语言继续推进，比如：`继续这个项目`、`恢复项目上下文`、`从上次停下的地方继续`。
+RecallLoom 是一个面向长期 AI 工作的可安装 continuity skill。把它接进真实项目之后，下一次回来时就可以直接说：`继续这个项目`、`恢复项目上下文`、`从上次停下的地方继续`，而不是重新从零解释一遍。
 
 它不是另一个管理面板，也不是被锁在某个平台里的私有记忆。RecallLoom 会把一小组真正重要的连续性信息留在工作区里，让下一次进入项目的人，无论是模型、智能体，还是协作者，都能从同一份项目现实继续，而不是重新从聊天记录里拼凑。
 
@@ -40,17 +40,17 @@ RecallLoom 做的事情很直接：把项目自己的“连续性记忆”放回
 - **“当前真相”终于能被看见**：现在成立的判断，不会再轻易埋进旧讨论里。
 - **回来继续时会轻松很多**：更像是在续上项目，而不是在重建项目。
 
-## 🆕 `v0.2.2` 这次真正交付了什么
+## 🆕 `v0.3.0` 这次真正交付了什么
 
-`v0.2.2` 是 RecallLoom 的品牌切换版本。
+`v0.3.0` 是 RecallLoom 第一次把“让新会话快速而安全地接上项目”这件事补到明显可依赖的版本。
 
-这一版同时把三件事落到了一起：
+它建立在 `v0.2.2` 已完成的品牌切换基础上，同时把三件事真正补稳：
 
-- **公共品牌统一切到 RecallLoom**：公共仓、包元数据、安装入口文档统一到一个名字上。
-- **安装面更干净**：可安装技能根目录统一为 `skills/recallloom/`。
-- **默认连续性运行面已经切换**：当前 helper 默认使用 `.recallloom/`、`RecallLoom` managed bridge block 与 `RecallLoom` managed exclude block。
+- **可以直接按 query 召回 continuity**：`query_continuity.py` 现在能返回带 citations、confidence、freshness、conflict state 和有界 supporting context 的结果。
+- **读侧基线真正统一**：`preflight`、`status`、`query_continuity` 现在共享 freshness 和 digest 原语，不再各说各话。
+- **附着前的 recall 更安全**：读侧输出会显式 surface `update_protocol.md`，限制局部上下文窗口，并对返回文本面做 attached-text scan。
 
-所以 `v0.2.2` 不是一次单纯的文案更新，而是第一次把新品牌、安装路径和默认连续性表面真正统一到同一版里。
+所以 `v0.3.0` 不再只是品牌与运行面统一之后的一次小修，而是第一次把 RecallLoom 的 read-side recall layer 补到了真正能日常依赖的程度。
 
 ## 🧭 最容易理解它的方式
 
@@ -223,7 +223,7 @@ recallloom/
 
 ### 版本信息
 
-- 包版本：`0.2.2`
+- 包版本：`0.3.0`
 - 协议版本：`1.0`
 - 当前支持的协议版本：
   - `1.0`
@@ -281,14 +281,14 @@ recallloom/
   <p>不需要。它的核心思路就是文件原生连续性。只要工具能安装这类技能包并读取项目文件，同一套项目状态就更容易跨工具延续。</p>
 </details>
 
-## 🌟 当前版本亮点
+## 🌟 `v0.3.0` 当前亮点
 
+- **query 导向的 continuity 召回**：`query_continuity.py` 可以返回有界、可引用的召回结果，而不是让下一次会话手工翻所有 continuity 文件。
+- **读侧 freshness / conflict 更一致**：`preflight`、`status`、`query_continuity` 现在能给出更统一的读侧判断。
+- **附着前输出更安全**：read-side recall 现在会限制上下文窗口、surface project-local override review，并在返回前做 attached-text scan。
 - **工作日推荐**：帮助智能体判断更适合继续哪一天的工作，减少跨天续写时的混乱。
 - **恢复提案与审阅记录**：让历史恢复过程更清楚，也更适合团队协作与人工把关。
-- **更稳的冷启动**：优先读取最小必要连续性表面，让新会话更快进入状态。
-- **更清晰的文件资产组织**：让连续性文件、恢复材料和辅助记录各归其位。
-- **更可靠的正式写入保护**：在需要落盘时提供更稳妥的护栏，降低把项目状态写乱的风险。
-- **`v0.2.2` 品牌与运行面统一**：公共品牌、安装路径和默认连续性表面现在都统一指向 `RecallLoom`。
+- **品牌与运行面统一继续保持稳定**：公共品牌、安装路径和默认连续性表面继续统一指向 `RecallLoom`。
 
 ## 📚 延伸阅读
 

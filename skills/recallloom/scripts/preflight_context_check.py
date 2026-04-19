@@ -9,9 +9,10 @@ import json
 from pathlib import Path
 
 from _common import (
-    continuity_confidence_level,
+    continuity_digest_bundle,
     ConfigContractError,
     EnvironmentContractError,
+    evaluate_continuity_freshness,
     exit_with_cli_error,
     FILE_KEYS,
     ensure_supported_python_version,
@@ -23,33 +24,9 @@ from _common import (
     StorageResolutionError,
     find_recallloom_root,
     latest_active_daily_log,
-    latest_file,
     today_iso,
 )
 
-
-DEFAULT_EXCLUDED_DIRS = {
-    ".git",
-    ".hg",
-    ".svn",
-    ".idea",
-    ".vscode",
-    ".venv",
-    "venv",
-    "__pycache__",
-    "node_modules",
-    "dist",
-    "build",
-    "coverage",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-}
-
-DEFAULT_EXCLUDED_FILES = {
-    ".DS_Store",
-    ".recallloom.write.lock",
-}
 DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR = 3
 
 
@@ -82,26 +59,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
     return parser
-
-
-def iter_workspace_artifacts(project_root: Path, storage_root: Path) -> list[Path]:
-    artifacts: list[Path] = []
-    for path in project_root.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            path.relative_to(storage_root)
-            continue
-        except ValueError:
-            pass
-        if path.name in DEFAULT_EXCLUDED_FILES:
-            continue
-        rel_path = path.relative_to(project_root)
-        rel_dir_parts = rel_path.parent.parts
-        if any(part in DEFAULT_EXCLUDED_DIRS for part in rel_dir_parts):
-            continue
-        artifacts.append(path)
-    return artifacts
 
 def recommended_actions_for_preflight(
     *,
@@ -228,32 +185,29 @@ def main() -> None:
                         f"{latest_daily_log}"
                     ),
                 )
-        latest_workspace_artifact = None
         workspace_artifact_scan_mode = "full" if args.full else "quick"
-        workspace_artifact_scan_performed = args.full
-        if workspace_artifact_scan_performed:
-            latest_workspace_artifact = latest_file(
-                iter_workspace_artifacts(workspace.project_root, workspace.storage_root)
-            )
-        summary_mtime = summary_path.stat().st_mtime
-        workspace_artifact_is_newer = None
-        if workspace_artifact_scan_performed:
-            workspace_artifact_is_newer = (
-                latest_workspace_artifact is not None
-                and latest_workspace_artifact.stat().st_mtime > summary_mtime
-            )
-        summary_revision_is_stale = state["workspace_revision"] > summary_state.base_workspace_revision
-        workspace_is_newer = (
-            (workspace_artifact_is_newer if workspace_artifact_is_newer is not None else False)
-            or summary_revision_is_stale
-        )
-        summary_stale = workspace_is_newer
-        continuity_confidence = continuity_confidence_level(
-            workspace_valid=True,
-            summary_revision_is_stale=summary_revision_is_stale,
-            workspace_artifact_is_newer=workspace_artifact_is_newer,
+        summary_text = read_text(summary_path)
+        latest_daily_log_text = read_text(latest_daily_log) if latest_daily_log is not None else ""
+        freshness = evaluate_continuity_freshness(
+            project_root=workspace.project_root,
+            storage_root=workspace.storage_root,
+            summary_path=summary_path,
+            workspace_revision=state["workspace_revision"],
+            summary_base_workspace_revision=summary_state.base_workspace_revision,
             latest_daily_log_exists=latest_daily_log is not None,
+            scan_mode=workspace_artifact_scan_mode,
         )
+        digests = continuity_digest_bundle(
+            summary_text=summary_text,
+            latest_daily_log_text=latest_daily_log_text,
+        )
+        latest_workspace_artifact = freshness["latest_workspace_artifact"]
+        workspace_artifact_scan_performed = freshness["workspace_artifact_scan_performed"]
+        workspace_artifact_is_newer = freshness["workspace_artifact_newer_than_summary"]
+        summary_revision_is_stale = freshness["summary_revision_stale"]
+        workspace_is_newer = freshness["workspace_newer_than_summary"]
+        summary_stale = freshness["summary_stale"]
+        continuity_confidence = freshness["continuity_confidence"]
         recommended_actions = recommended_actions_for_preflight(
             continuity_confidence=continuity_confidence,
             update_protocol_exists=update_protocol_path.is_file(),
@@ -265,8 +219,10 @@ def main() -> None:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
 
     recommended_write_targets = [str(summary_path.relative_to(workspace.project_root))]
+    suggested_read_set = [str(summary_path.relative_to(workspace.project_root))]
     conditional_review_targets = []
     if latest_daily_log is not None:
+        suggested_read_set.append(str(latest_daily_log.relative_to(workspace.project_root)))
         conditional_review_targets.append(
             {
                 "path": str(latest_daily_log.relative_to(workspace.project_root)),
@@ -277,6 +233,7 @@ def main() -> None:
             }
         )
     if context_brief_path.is_file():
+        suggested_read_set.append(str(context_brief_path.relative_to(workspace.project_root)))
         conditional_review_targets.append(
             {
                 "path": str(context_brief_path.relative_to(workspace.project_root)),
@@ -288,6 +245,7 @@ def main() -> None:
         )
     override_review_targets = []
     if update_protocol_path.is_file():
+        suggested_read_set.append(str(update_protocol_path.relative_to(workspace.project_root)))
         override_review_targets.append(
             {
                 "path": str(update_protocol_path.relative_to(workspace.project_root)),
@@ -325,6 +283,10 @@ def main() -> None:
         "summary_stale": summary_stale,
         "workspace_newer_than_summary": workspace_is_newer,
         "continuity_confidence": continuity_confidence,
+        "active_task_digest": digests["active_task_digest"],
+        "blocked_digest": digests["blocked_digest"],
+        "latest_relevant_log_digest": digests["latest_relevant_log_digest"],
+        "suggested_handoff_sections": digests["suggested_handoff_sections"],
         "recommended_actions": recommended_actions,
         "continuity_snapshot": {
             "project_root": str(workspace.project_root),
@@ -341,11 +303,18 @@ def main() -> None:
             "continuity_confidence": continuity_confidence,
             "task_type": "preflight_review",
         },
+        "suggested_read_set": suggested_read_set,
         "recommended_write_targets": recommended_write_targets,
         "conditional_review_targets": conditional_review_targets,
         "override_review_targets": override_review_targets,
         "safe_write_context": {
             "workspace_revision": state["workspace_revision"],
+            "rolling_summary_handoff": {
+                "active_task_digest": digests["active_task_digest"],
+                "blocked_digest": digests["blocked_digest"],
+                "latest_relevant_log_digest": digests["latest_relevant_log_digest"],
+                "suggested_handoff_sections": digests["suggested_handoff_sections"],
+            },
             "commit_context_file": {
                 "rolling_summary": {
                     "path": str(summary_path.relative_to(workspace.project_root)),

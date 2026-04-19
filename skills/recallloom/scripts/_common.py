@@ -21,6 +21,7 @@ RECOVERY_PROPOSAL_FILE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[A
 REVIEW_RECORD_FILE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[A-Za-z0-9._-]+\.review\.md$")
 MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(?P<title>.*?)\s*$")
 HEADING_NUMBER_PREFIX_RE = re.compile(r"^\s*[0-9]+(?:\.[0-9]+)*[.)、:：-]?\s*")
+INVISIBLE_UNICODE_RE = re.compile(r"[\u200b-\u200f\u2060\u2066-\u2069\ufeff]")
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 METADATA_PATH = PACKAGE_ROOT / "package-metadata.json"
@@ -97,6 +98,40 @@ UPDATE_PROTOCOL_TIME_POLICY_KEYWORDS = (
     "开启新的一天",
     "昨天",
     "今天",
+)
+
+DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_DIRS = {
+    ".git",
+    ".hg",
+    ".svn",
+    ".idea",
+    ".vscode",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "node_modules",
+    "dist",
+    "build",
+    "coverage",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+}
+
+DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_FILES = {
+    ".DS_Store",
+    ".recallloom.write.lock",
+}
+
+ATTACH_SCAN_HARD_BLOCK_PATTERNS = (
+    re.compile(r"\bignore (all )?(previous|prior|above) (instructions|rules|guidance)\b", re.I),
+    re.compile(r"\b(disregard|override) (the )?(system prompt|developer message|instructions?)\b", re.I),
+    re.compile(r"\b(reveal|print|dump|show|exfiltrat\w*)\b.{0,40}\b(secret|token|password|api key|credential|ssh key|env)\b", re.I | re.S),
+)
+
+ATTACH_SCAN_WARNING_PATTERNS = (
+    re.compile(r"\b(secret|token|password|credential|api key)\b", re.I),
+    re.compile(r"\bignore\b", re.I),
 )
 
 
@@ -185,6 +220,25 @@ def _load_relative_path_list(payload: dict, *, field: str, source_path: Path) ->
         seen.add(normalized_item)
         normalized.append(normalized_item)
     return normalized
+
+
+def extract_section_text(text: str, section_key: str) -> str:
+    lines = text.splitlines()
+    start_marker = f"<!-- section: {section_key} -->"
+    start_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip() == start_marker:
+            start_idx = idx + 1
+            break
+    if start_idx is None:
+        return ""
+
+    collected: list[str] = []
+    for line in lines[start_idx:]:
+        if line.strip().startswith("<!-- section: "):
+            break
+        collected.append(line)
+    return "\n".join(collected).strip()
 
 
 def markdown_heading_titles(text: str) -> list[str]:
@@ -417,6 +471,7 @@ SECTION_KEYS = {
         "risks_blockers",
         "recommended_next_step",
     ],
+    "update_protocol": ["project_specific_overrides"],
 }
 
 OPTIONAL_SECTION_KEYS = {
@@ -1378,6 +1433,74 @@ def render_context_brief_template(language: str, *, tool_name: str, timestamp: s
 def render_rolling_summary_template(tool_name: str, day: str, language: str, *, timestamp: str, workspace_revision: int) -> str:
     language = validate_workspace_language(language)
     labels = LABELS[language]["rolling_summary"]
+    guidance = {
+        "en": {
+            "current_state": [
+                "Write the validated handoff-first state here:",
+                "",
+                "- Active state",
+                "- Relevant files",
+                "- Critical context",
+            ],
+            "active_judgments": [
+                "Record the coordination judgments that matter right now:",
+                "",
+                "- Key decisions",
+                "- Active assumptions",
+                "- Tradeoffs in force",
+            ],
+            "risks_open_questions": [
+                "Make blocker visibility explicit:",
+                "",
+                "- Blocked items",
+                "- Open questions",
+                "- External dependencies",
+            ],
+            "next_step": [
+                "Describe the handoff-first next move:",
+                "",
+                "- Active task",
+                "- Owner or role when known",
+                "- Immediate next action",
+            ],
+            "recent_pivots": [
+                "-",
+            ],
+        },
+        "zh-CN": {
+            "current_state": [
+                "这里优先写 handoff-first 的已确认当前状态：",
+                "",
+                "- 当前活跃状态",
+                "- 相关文件",
+                "- 关键上下文",
+            ],
+            "active_judgments": [
+                "这里记录当前真正影响推进的判断：",
+                "",
+                "- 关键决策",
+                "- 当前假设",
+                "- 仍在生效的取舍",
+            ],
+            "risks_open_questions": [
+                "把阻塞与未决问题写清楚：",
+                "",
+                "- 当前阻塞",
+                "- 未决问题",
+                "- 外部依赖",
+            ],
+            "next_step": [
+                "这里写 handoff-first 的下一步：",
+                "",
+                "- 当前任务",
+                "- 已知负责人或角色",
+                "- 立刻要做的动作",
+            ],
+            "recent_pivots": [
+                "-",
+            ],
+        },
+    }[language]
     parts = [
         file_marker("rolling_summary", language),
         rolling_summary_header(tool_name, day),
@@ -1390,7 +1513,7 @@ def render_rolling_summary_template(tool_name: str, day: str, language: str, *, 
     ]
     for section_key in SECTION_KEYS["rolling_summary"]:
         parts.append("")
-        block = render_section_block(1, section_key, labels[section_key])
+        block = render_section_block(1, section_key, labels[section_key], guidance[section_key])
         parts.append(block)
     return "\n".join(parts) + "\n"
 
@@ -1795,6 +1918,162 @@ def continuity_confidence_level(
     if summary_revision_is_stale or artifact_newer or not latest_daily_log_exists:
         return "medium"
     return "high"
+
+
+def _digest_excerpt(text: str, *, max_lines: int = 4) -> str | None:
+    lines: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("<!--"):
+            continue
+        stripped = stripped.lstrip("-* ").strip()
+        if not stripped:
+            continue
+        lines.append(stripped)
+        if len(lines) >= max_lines:
+            break
+    if not lines:
+        return None
+    return " | ".join(lines)
+
+
+def continuity_digest_bundle(
+    *,
+    summary_text: str,
+    latest_daily_log_text: str | None = None,
+) -> dict:
+    next_step_text = extract_section_text(summary_text, "next_step")
+    risks_text = extract_section_text(summary_text, "risks_open_questions")
+    active_task_digest = _digest_excerpt(next_step_text)
+    blocked_digest = _digest_excerpt(risks_text)
+
+    latest_relevant_log_digest = None
+    if latest_daily_log_text:
+        log_sections = [
+            extract_section_text(latest_daily_log_text, "work_completed"),
+            extract_section_text(latest_daily_log_text, "key_decisions"),
+            extract_section_text(latest_daily_log_text, "recommended_next_step"),
+        ]
+        latest_relevant_log_digest = _digest_excerpt(
+            "\n".join(section for section in log_sections if section.strip())
+        )
+
+    suggested_handoff_sections: list[str] = []
+    if active_task_digest:
+        suggested_handoff_sections.append("next_step")
+    if blocked_digest:
+        suggested_handoff_sections.append("risks_open_questions")
+    if latest_relevant_log_digest:
+        suggested_handoff_sections.append("latest_daily_log")
+
+    return {
+        "active_task_digest": active_task_digest,
+        "blocked_digest": blocked_digest,
+        "latest_relevant_log_digest": latest_relevant_log_digest,
+        "suggested_handoff_sections": suggested_handoff_sections,
+    }
+
+
+def scan_auto_attached_context_text(text: str) -> dict:
+    hard_block_reasons: list[str] = []
+    warnings: list[str] = []
+
+    if INVISIBLE_UNICODE_RE.search(text):
+        hard_block_reasons.append("invisible_unicode")
+
+    for pattern in ATTACH_SCAN_HARD_BLOCK_PATTERNS:
+        if pattern.search(text):
+            hard_block_reasons.append(pattern.pattern)
+
+    for pattern in ATTACH_SCAN_WARNING_PATTERNS:
+        if pattern.search(text):
+            warnings.append(pattern.pattern)
+
+    return {
+        "blocked": bool(hard_block_reasons),
+        "hard_block_reasons": hard_block_reasons,
+        "warnings": warnings,
+    }
+
+
+def iter_workspace_artifacts(
+    project_root: Path,
+    storage_root: Path,
+    *,
+    excluded_dirs: set[str] | None = None,
+    excluded_files: set[str] | None = None,
+) -> list[Path]:
+    excluded_dirs = excluded_dirs or DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_DIRS
+    excluded_files = excluded_files or DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_FILES
+    artifacts: list[Path] = []
+    for path in project_root.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            path.relative_to(storage_root)
+            continue
+        except ValueError:
+            pass
+        if path.name in excluded_files:
+            continue
+        rel_path = path.relative_to(project_root)
+        if any(part in excluded_dirs for part in rel_path.parent.parts):
+            continue
+        artifacts.append(path)
+    return artifacts
+
+
+def evaluate_continuity_freshness(
+    *,
+    project_root: Path,
+    storage_root: Path,
+    summary_path: Path,
+    workspace_revision: int,
+    summary_base_workspace_revision: int,
+    latest_daily_log_exists: bool,
+    scan_mode: str = "quick",
+) -> dict:
+    if scan_mode not in {"quick", "full"}:
+        raise ValueError(f"Unsupported scan_mode: {scan_mode}")
+
+    workspace_artifact_scan_performed = scan_mode == "full"
+    latest_workspace_artifact = None
+    workspace_artifact_is_newer = None
+    summary_mtime = summary_path.stat().st_mtime
+
+    if workspace_artifact_scan_performed:
+        latest_workspace_artifact = latest_file(
+            iter_workspace_artifacts(project_root, storage_root)
+        )
+        workspace_artifact_is_newer = (
+            latest_workspace_artifact is not None
+            and latest_workspace_artifact.stat().st_mtime > summary_mtime
+        )
+
+    summary_revision_is_stale = workspace_revision > summary_base_workspace_revision
+    workspace_is_newer = (
+        (workspace_artifact_is_newer if workspace_artifact_is_newer is not None else False)
+        or summary_revision_is_stale
+    )
+    continuity_confidence = continuity_confidence_level(
+        workspace_valid=True,
+        summary_revision_is_stale=summary_revision_is_stale,
+        workspace_artifact_is_newer=workspace_artifact_is_newer,
+        latest_daily_log_exists=latest_daily_log_exists,
+    )
+
+    return {
+        "workspace_artifact_scan_mode": scan_mode,
+        "workspace_artifact_scan_performed": workspace_artifact_scan_performed,
+        "latest_workspace_artifact": latest_workspace_artifact,
+        "workspace_artifact_newer_than_summary": workspace_artifact_is_newer,
+        "summary_revision_stale": summary_revision_is_stale,
+        "workspace_newer_than_summary": workspace_is_newer,
+        "summary_stale": workspace_is_newer,
+        "continuity_confidence": continuity_confidence,
+    }
 
 
 def daily_log_sequence_error(entries: list[DailyLogEntryInfo]) -> str | None:

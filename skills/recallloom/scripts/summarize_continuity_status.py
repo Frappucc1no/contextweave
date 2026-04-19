@@ -10,10 +10,11 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from _common import (
-    continuity_confidence_level,
     ConfigContractError,
+    continuity_digest_bundle,
     detect_update_protocol_time_policy_cues,
     EnvironmentContractError,
+    evaluate_continuity_freshness,
     ensure_supported_python_version,
     exit_with_cli_error,
     FILE_KEYS,
@@ -96,29 +97,6 @@ def resolve_now(now_raw: str | None, timezone_name: str | None) -> tuple[datetim
 
     zone_label = timezone_name or str(now.tzinfo)
     return now, zone_label
-
-
-def summary_next_step_empty(summary_path: Path) -> bool:
-    text = read_text(summary_path)
-    capture = False
-    values: list[str] = []
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped == "<!-- section: next_step -->":
-            capture = True
-            continue
-        if capture and stripped.startswith("<!-- section: "):
-            break
-        if not capture:
-            continue
-        if not stripped or stripped.startswith("#") or stripped in {"-", "*"}:
-            continue
-        values.append(stripped.lstrip("-* ").strip())
-    if not values:
-        return True
-    lowered = " ".join(values).strip().lower()
-    return lowered in {"none", "n/a", "na", "no next step"}
-
 
 def detect_closure_signal(daily_log_text: str) -> tuple[bool, list[str]]:
     closure_keywords = (
@@ -353,16 +331,26 @@ def main() -> None:
         update_protocol_state = (
             parse_file_state_marker(read_text(update_protocol_path)) if update_protocol_path.is_file() else None
         )
+        summary_text = read_text(summary_path)
         update_protocol_text = read_text(update_protocol_path) if update_protocol_path.is_file() else ""
         latest_daily_log = latest_active_daily_log(workspace.storage_root / "daily_logs")
         latest_daily_log_entry = latest_daily_log_entry_info(latest_daily_log)
-        summary_stale = state["workspace_revision"] > summary_state.base_workspace_revision
-        confidence = continuity_confidence_level(
-            workspace_valid=True,
-            summary_revision_is_stale=summary_stale,
-            workspace_artifact_is_newer=None,
+        latest_daily_log_text = read_text(latest_daily_log) if latest_daily_log is not None else ""
+        freshness = evaluate_continuity_freshness(
+            project_root=workspace.project_root,
+            storage_root=workspace.storage_root,
+            summary_path=summary_path,
+            workspace_revision=state["workspace_revision"],
+            summary_base_workspace_revision=summary_state.base_workspace_revision,
             latest_daily_log_exists=latest_daily_log is not None,
+            scan_mode="quick",
         )
+        digests = continuity_digest_bundle(
+            summary_text=summary_text,
+            latest_daily_log_text=latest_daily_log_text,
+        )
+        summary_stale = freshness["summary_stale"]
+        confidence = freshness["continuity_confidence"]
         actions = recommended_actions_for_status(
             continuity_confidence=confidence,
             update_protocol_exists=update_protocol_path.is_file(),
@@ -374,7 +362,7 @@ def main() -> None:
             now=now,
             rollover_hour=args.rollover_hour,
             latest_daily_log=latest_daily_log,
-            summary_next_step_is_empty=summary_next_step_empty(summary_path),
+            summary_next_step_is_empty=digests["active_task_digest"] is None,
             preferred_date_raw=args.preferred_date,
             update_protocol_text=update_protocol_text,
             host_explicit=args.timezone is not None or args.rollover_hour != 3,
@@ -396,8 +384,22 @@ def main() -> None:
         "now": now.isoformat(),
         "workspace_revision": state["workspace_revision"],
         "rolling_summary_revision": summary_state.revision,
+        "workspace_artifact_scan_mode": freshness["workspace_artifact_scan_mode"],
+        "workspace_artifact_scan_performed": freshness["workspace_artifact_scan_performed"],
+        "latest_workspace_artifact": (
+            str(freshness["latest_workspace_artifact"])
+            if freshness["latest_workspace_artifact"] is not None
+            else None
+        ),
+        "workspace_artifact_newer_than_summary": freshness["workspace_artifact_newer_than_summary"],
+        "summary_revision_stale": freshness["summary_revision_stale"],
+        "workspace_newer_than_summary": freshness["workspace_newer_than_summary"],
         "summary_stale": summary_stale,
         "continuity_confidence": confidence,
+        "active_task_digest": digests["active_task_digest"],
+        "blocked_digest": digests["blocked_digest"],
+        "latest_relevant_log_digest": digests["latest_relevant_log_digest"],
+        "suggested_handoff_sections": digests["suggested_handoff_sections"],
         "recommended_actions": actions,
         "latest_active_daily_log": str(latest_daily_log) if latest_daily_log else None,
         "continuity_snapshot": {

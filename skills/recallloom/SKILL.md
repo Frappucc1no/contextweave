@@ -100,6 +100,27 @@ It should not automatically continue `next_step` or execute project work just be
 
 See `references/operation-playbooks.md` for the full flow.
 
+## Current Read-Side Helpers
+
+The current `0.3.0` line now has three read-side helper directions worth knowing:
+
+- `preflight_context_check.py`
+  - revision-aware freshness review before formal writes
+  - returns handoff-first digests and suggested read targets
+- `summarize_continuity_status.py`
+  - ambient continuity status surface using the same freshness baseline
+  - returns the same handoff-first digest family for quick orientation
+- `query_continuity.py`
+  - read-only continuity recall surface
+  - returns hits, citations, synthesized recall, token estimate, budget hint, freshness/conflict state, an output variant label, and override review targets
+  - daily-log citations include explicit `date` values
+  - prefers current-state files over historical daily logs when match strength ties
+  - can explicitly surface freshness conflicts when the workspace has moved beyond the current summary
+  - surfaces `update_protocol.md` as a review target before recall should drive write decisions
+  - keeps `supporting_context_window` bounded instead of expanding every matching excerpt
+
+All attach-safe continuity text returned through these read-side surfaces is expected to respect the shared attached-text scan rules.
+
 ## Minimum Write Rules
 
 - Before choosing a write target, read `STORAGE_ROOT/update_protocol.md` if it exists.
