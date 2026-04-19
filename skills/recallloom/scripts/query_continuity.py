@@ -116,6 +116,25 @@ def gather_file_hits(
     return hits
 
 
+def supporting_context_window(
+    hits: list[dict],
+    *,
+    mode: str,
+) -> list[dict]:
+    if mode != "detailed":
+        return []
+    return [
+        {
+            "path": item["path"],
+            "section": item["section"],
+            "source_type": item["source_type"],
+            "excerpt": item["excerpt"],
+            "score": item["score"],
+        }
+        for item in hits
+    ]
+
+
 def token_estimate(text: str) -> int:
     words = len(re.findall(r"\S+", text))
     return max(1, round(words / 0.75))
@@ -261,7 +280,7 @@ def main() -> None:
         "hits": hits,
         "synthesized_recall": synthesized_recall,
         "citations": citations,
-        "supporting_context_window": [item["excerpt"] for item in hits] if args.mode == "detailed" else [],
+        "supporting_context_window": supporting_context_window(hits, mode=args.mode),
         "continuity_snapshot": {
             "workspace_revision_seen": state["workspace_revision"],
             "rolling_summary_revision_seen": summary_state.revision,
