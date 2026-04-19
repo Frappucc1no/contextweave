@@ -2,7 +2,7 @@
 
 <h1>🧶 RecallLoom</h1>
 
-**一个长期项目，不该因为切模型、换智能体、跨会话，就一次次重新开始。**
+**面向长期 AI 工作的可迁移项目连续性层。**
 
 [![Version](https://img.shields.io/badge/version-v0.3.0-111827)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
@@ -12,7 +12,7 @@
 
 </div>
 
-RecallLoom 是一个面向长期 AI 工作的可安装 continuity skill。把它接进一个真实项目之后，你就可以直接用自然语言继续推进，比如：`继续这个项目`、`恢复项目上下文`、`从上次停下的地方继续`。
+RecallLoom 是一个面向长期 AI 工作的可安装 continuity skill。把它接进真实项目之后，下一次回来时就可以直接说：`继续这个项目`、`恢复项目上下文`、`从上次停下的地方继续`，而不是重新从零解释一遍。
 
 它不是另一个管理面板，也不是被锁在某个平台里的私有记忆。RecallLoom 会把一小组真正重要的连续性信息留在工作区里，让下一次进入项目的人，无论是模型、智能体，还是协作者，都能从同一份项目现实继续，而不是重新从聊天记录里拼凑。
 
@@ -42,15 +42,15 @@ RecallLoom 做的事情很直接：把项目自己的“连续性记忆”放回
 
 ## 🆕 `v0.3.0` 这次真正交付了什么
 
-`v0.3.0` 是 RecallLoom 的读侧强化版本。
+`v0.3.0` 是 RecallLoom 第一次把“让新会话快速而安全地接上项目”这件事补到明显可依赖的版本。
 
 它建立在 `v0.2.2` 已完成的品牌切换基础上，同时把三件事真正补稳：
 
-- **可按 query 召回 continuity**：`query_continuity.py` 现在可以返回带 citations、confidence、freshness、conflict state 和有界 supporting context 的召回结果。
+- **可以直接按 query 召回 continuity**：`query_continuity.py` 现在能返回带 citations、confidence、freshness、conflict state 和有界 supporting context 的结果。
 - **读侧基线真正统一**：`preflight`、`status`、`query_continuity` 现在共享 freshness 和 digest 原语，不再各说各话。
 - **附着前的 recall 更安全**：读侧输出会显式 surface `update_protocol.md`，限制局部上下文窗口，并对返回文本面做 attached-text scan。
 
-所以 `v0.3.0` 不再只是品牌与运行面统一后的下一小步，而是第一次把 RecallLoom 的 read-side recall layer 补到了真正可依赖的程度。
+所以 `v0.3.0` 不再只是品牌与运行面统一之后的一次小修，而是第一次把 RecallLoom 的 read-side recall layer 补到了真正能日常依赖的程度。
 
 ## 🧭 最容易理解它的方式
 
@@ -281,14 +281,14 @@ recallloom/
   <p>不需要。它的核心思路就是文件原生连续性。只要工具能安装这类技能包并读取项目文件，同一套项目状态就更容易跨工具延续。</p>
 </details>
 
-## 🌟 当前版本亮点
+## 🌟 `v0.3.0` 当前亮点
 
 - **query 导向的 continuity 召回**：`query_continuity.py` 可以返回有界、可引用的召回结果，而不是让下一次会话手工翻所有 continuity 文件。
 - **读侧 freshness / conflict 更一致**：`preflight`、`status`、`query_continuity` 现在能给出更统一的读侧判断。
 - **附着前输出更安全**：read-side recall 现在会限制上下文窗口、surface project-local override review，并在返回前做 attached-text scan。
 - **工作日推荐**：帮助智能体判断更适合继续哪一天的工作，减少跨天续写时的混乱。
 - **恢复提案与审阅记录**：让历史恢复过程更清楚，也更适合团队协作与人工把关。
-- **`v0.2.2` 建立的品牌与运行面统一，仍然是基础**：公共品牌、安装路径和默认连续性表面继续统一指向 `RecallLoom`。
+- **品牌与运行面统一继续保持稳定**：公共品牌、安装路径和默认连续性表面继续统一指向 `RecallLoom`。
 
 ## 📚 延伸阅读
 

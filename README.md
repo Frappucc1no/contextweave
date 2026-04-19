@@ -2,7 +2,7 @@
 
 <h1>🧶 RecallLoom</h1>
 
-**A long-running project should not feel like it has to restart every time you switch models, agents, or sessions.**
+**Portable project continuity for long-running AI work.**
 
 [![Version](https://img.shields.io/badge/version-v0.3.0-111827)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
@@ -12,7 +12,7 @@
 
 </div>
 
-RecallLoom is an installable continuity skill for long-running AI work. You install it once, connect it to a real project, and then simply speak naturally: `continue this project`, `restore project context`, `pick up where we left off`.
+RecallLoom is an installable continuity skill for long-running AI work. Install it once, connect it to a real project, and the next session can say things like `continue this project`, `restore project context`, or `pick up where we left off` without starting from zero.
 
 It is not another dashboard, and it is not a private memory silo locked inside one platform. RecallLoom keeps a small shared continuity surface inside the workspace itself, so the next model, the next agent, or the next collaborator can resume from the same project reality instead of rebuilding it from chat history.
 
@@ -42,15 +42,15 @@ RecallLoom gives the project a place to keep its own memory in plain files insid
 
 ## 🆕 What `v0.3.0` Establishes
 
-`v0.3.0` is the read-side hardening release for RecallLoom.
+`v0.3.0` is the release where RecallLoom becomes much better at helping a fresh session recover the right project state quickly and safely.
 
 It builds on the `v0.2.2` brand-cutover foundation and establishes three things together:
 
-- **A query-oriented continuity recall surface**: `query_continuity.py` can now surface relevant continuity with citations, confidence, freshness, conflict state, and bounded supporting context.
-- **A stronger shared read-side baseline**: `preflight`, `status`, and `query_continuity` now align on the same freshness and digest primitives instead of drifting into separate interpretations.
-- **A safer attach-ready recall path**: read-side outputs now surface `update_protocol.md`, bound the contextual window, and run the attached-text scan across the returned recall surface.
+- **You can query continuity directly**: `query_continuity.py` can now return relevant continuity with citations, confidence, freshness, conflict state, and bounded supporting context.
+- **The read-side story is more coherent**: `preflight`, `status`, and `query_continuity` now align on the same freshness and digest primitives instead of drifting into separate interpretations.
+- **Recall is safer to attach and trust**: read-side outputs now surface `update_protocol.md`, bound the contextual window, and run the attached-text scan across the returned recall surface.
 
-This means `v0.3.0` is the first release where RecallLoom has both a unified brand/runtime surface and a materially stronger read-side recall layer for long-running work.
+This means `v0.3.0` is the first release where RecallLoom has both a unified brand/runtime surface and a read-side recall layer strong enough to feel dependable in day-to-day long-running work.
 
 ## 🧭 The Easiest Way To Think About It
 
@@ -285,14 +285,14 @@ recallloom/
   <p>No. The whole idea is file-native continuity. As long as a tool can install this kind of skill package and read project files, it becomes much easier to carry the same project state across tools.</p>
 </details>
 
-## 🌟 Current Version Highlights
+## 🌟 `v0.3.0` Highlights
 
 - **Query-oriented continuity recall**: `query_continuity.py` can return bounded, cited recall instead of forcing the next session to manually scan every continuity file.
 - **Shared freshness and conflict surfacing**: `preflight`, `status`, and `query_continuity` now expose a more coherent read-side picture before writes or handoffs.
 - **Safer attach-ready outputs**: read-side recall now stays bounded, surfaces project-local override review, and runs through the attached-text scan before return.
 - **Workday recommendation**: Helps an agent judge which day of work is most appropriate to continue, reducing confusion across day boundaries.
 - **Recovery proposals and review records**: Makes historical recovery clearer and easier to review collaboratively.
-- **Brand and runtime alignment from `v0.2.2` remains the foundation**: the public brand, install path, and default continuity surface stay aligned on `RecallLoom`.
+- **Brand and runtime alignment stays intact**: the public brand, install path, and default continuity surface remain aligned on `RecallLoom`.
 
 ## 📚 Further Reading
 
