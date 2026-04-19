@@ -219,8 +219,10 @@ def main() -> None:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
 
     recommended_write_targets = [str(summary_path.relative_to(workspace.project_root))]
+    suggested_read_set = [str(summary_path.relative_to(workspace.project_root))]
     conditional_review_targets = []
     if latest_daily_log is not None:
+        suggested_read_set.append(str(latest_daily_log.relative_to(workspace.project_root)))
         conditional_review_targets.append(
             {
                 "path": str(latest_daily_log.relative_to(workspace.project_root)),
@@ -231,6 +233,7 @@ def main() -> None:
             }
         )
     if context_brief_path.is_file():
+        suggested_read_set.append(str(context_brief_path.relative_to(workspace.project_root)))
         conditional_review_targets.append(
             {
                 "path": str(context_brief_path.relative_to(workspace.project_root)),
@@ -242,6 +245,7 @@ def main() -> None:
         )
     override_review_targets = []
     if update_protocol_path.is_file():
+        suggested_read_set.append(str(update_protocol_path.relative_to(workspace.project_root)))
         override_review_targets.append(
             {
                 "path": str(update_protocol_path.relative_to(workspace.project_root)),
@@ -299,11 +303,18 @@ def main() -> None:
             "continuity_confidence": continuity_confidence,
             "task_type": "preflight_review",
         },
+        "suggested_read_set": suggested_read_set,
         "recommended_write_targets": recommended_write_targets,
         "conditional_review_targets": conditional_review_targets,
         "override_review_targets": override_review_targets,
         "safe_write_context": {
             "workspace_revision": state["workspace_revision"],
+            "rolling_summary_handoff": {
+                "active_task_digest": digests["active_task_digest"],
+                "blocked_digest": digests["blocked_digest"],
+                "latest_relevant_log_digest": digests["latest_relevant_log_digest"],
+                "suggested_handoff_sections": digests["suggested_handoff_sections"],
+            },
             "commit_context_file": {
                 "rolling_summary": {
                     "path": str(summary_path.relative_to(workspace.project_root)),
