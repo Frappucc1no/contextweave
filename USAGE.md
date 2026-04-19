@@ -239,6 +239,7 @@ The installable package currently ships these user-facing helper scripts:
 - Cold-start note: default behavior now stays on the lighter sidecar-visible freshness path; normal cold start should still restore and review first, not automatically continue project work
 - `--full` note: add this flag when you intentionally want the heavier workspace artifact scan before a higher-confidence write or audit pass
 - `--quick` compatibility note: this flag still exists, but it now just makes the default quick path explicit
+- `--fail-on-stale` note: when combined with a stale result, the helper exits non-zero instead of only reporting the risk in JSON/text output
 - Current read-side note: this helper now surfaces handoff-first fields such as `active_task_digest`, `blocked_digest`, `latest_relevant_log_digest`, `suggested_handoff_sections`, and `suggested_read_set`
 
 ### `archive_logs.py`
@@ -364,7 +365,13 @@ This keeps the split clear:
 - Typical use: retrieve project-relevant continuity without manually reading every managed file
 - Writes files: no
 - Default read boundary: core continuity files first (`rolling_summary.md`, `context_brief.md`, latest active daily log, optional recent daily logs)
-- Output model: returns `hits`, `citations`, `synthesized_recall`, `token_estimate`, `budget_hint`, `continuity_confidence`, `freshness_state`, and `conflict_state`
+- Ranking model: when match strength ties, current-state files are preferred over historical logs in this order: `rolling_summary.md` -> `context_brief.md` -> latest active daily log -> recent daily logs
+- Output model: returns `hits`, `citations`, `synthesized_recall`, `token_estimate`, `budget_hint`, `continuity_confidence`, `freshness_state`, `conflict_state`, `output_variant`, and `override_review_targets`
+- Citation model: daily-log citations now include explicit `date` values in addition to `path`, `section`, and `source_type`
+- Freshness model: the helper now uses the fuller workspace-artifact freshness pass so `conflict_state` can explicitly surface cases such as `workspace_artifact_newer_than_summary`, `summary_revision_stale`, or `multi_source_review_recommended`
+- Override model: when `update_protocol.md` exists, the helper now surfaces it as an explicit review target before the recall should be used to choose a write target
+- Output-variant model: `brief` maps to a compact attach-safe response, while `detailed` maps to a more expanded contextual response with a bounded `supporting_context_window`
+- Budget model: `supporting_context_window` is now trimmed by a small budget instead of expanding every top hit in detailed mode
 - Safety model: attach-safe output is scanned before return; companion is not read by default and no files are written
 
 ### `unlock_write_lock.py`

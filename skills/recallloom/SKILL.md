@@ -112,7 +112,12 @@ The current `0.3.0` work branch now has three read-side helper directions worth 
   - returns the same handoff-first digest family for quick orientation
 - `query_continuity.py`
   - read-only continuity recall surface
-  - returns hits, citations, synthesized recall, token estimate, budget hint, and freshness/conflict state
+  - returns hits, citations, synthesized recall, token estimate, budget hint, freshness/conflict state, an output variant label, and override review targets
+  - daily-log citations include explicit `date` values
+  - prefers current-state files over historical daily logs when match strength ties
+  - can explicitly surface freshness conflicts when the workspace has moved beyond the current summary
+  - surfaces `update_protocol.md` as a review target before recall should drive write decisions
+  - keeps `supporting_context_window` bounded instead of expanding every matching excerpt
 
 All attach-safe continuity text returned through these read-side surfaces is expected to respect the shared attached-text scan rules.
 
