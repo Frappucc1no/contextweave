@@ -21,6 +21,7 @@ RECOVERY_PROPOSAL_FILE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[A
 REVIEW_RECORD_FILE_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}-[A-Za-z0-9._-]+\.review\.md$")
 MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(?P<title>.*?)\s*$")
 HEADING_NUMBER_PREFIX_RE = re.compile(r"^\s*[0-9]+(?:\.[0-9]+)*[.)、:：-]?\s*")
+INVISIBLE_UNICODE_RE = re.compile(r"[\u200b-\u200f\u2060\u2066-\u2069\ufeff]")
 
 PACKAGE_ROOT = Path(__file__).resolve().parent.parent
 METADATA_PATH = PACKAGE_ROOT / "package-metadata.json"
@@ -121,6 +122,17 @@ DEFAULT_WORKSPACE_ARTIFACT_EXCLUDED_FILES = {
     ".DS_Store",
     ".recallloom.write.lock",
 }
+
+ATTACH_SCAN_HARD_BLOCK_PATTERNS = (
+    re.compile(r"\bignore (all )?(previous|prior|above) (instructions|rules|guidance)\b", re.I),
+    re.compile(r"\b(disregard|override) (the )?(system prompt|developer message|instructions?)\b", re.I),
+    re.compile(r"\b(reveal|print|dump|show|exfiltrat\w*)\b.{0,40}\b(secret|token|password|api key|credential|ssh key|env)\b", re.I | re.S),
+)
+
+ATTACH_SCAN_WARNING_PATTERNS = (
+    re.compile(r"\b(secret|token|password|credential|api key)\b", re.I),
+    re.compile(r"\bignore\b", re.I),
+)
 
 
 def load_package_metadata() -> dict:
@@ -1421,6 +1433,74 @@ def render_context_brief_template(language: str, *, tool_name: str, timestamp: s
 def render_rolling_summary_template(tool_name: str, day: str, language: str, *, timestamp: str, workspace_revision: int) -> str:
     language = validate_workspace_language(language)
     labels = LABELS[language]["rolling_summary"]
+    guidance = {
+        "en": {
+            "current_state": [
+                "Write the validated handoff-first state here:",
+                "",
+                "- Active state",
+                "- Relevant files",
+                "- Critical context",
+            ],
+            "active_judgments": [
+                "Record the coordination judgments that matter right now:",
+                "",
+                "- Key decisions",
+                "- Active assumptions",
+                "- Tradeoffs in force",
+            ],
+            "risks_open_questions": [
+                "Make blocker visibility explicit:",
+                "",
+                "- Blocked items",
+                "- Open questions",
+                "- External dependencies",
+            ],
+            "next_step": [
+                "Describe the handoff-first next move:",
+                "",
+                "- Active task",
+                "- Owner or role when known",
+                "- Immediate next action",
+            ],
+            "recent_pivots": [
+                "-",
+            ],
+        },
+        "zh-CN": {
+            "current_state": [
+                "这里优先写 handoff-first 的已确认当前状态：",
+                "",
+                "- 当前活跃状态",
+                "- 相关文件",
+                "- 关键上下文",
+            ],
+            "active_judgments": [
+                "这里记录当前真正影响推进的判断：",
+                "",
+                "- 关键决策",
+                "- 当前假设",
+                "- 仍在生效的取舍",
+            ],
+            "risks_open_questions": [
+                "把阻塞与未决问题写清楚：",
+                "",
+                "- 当前阻塞",
+                "- 未决问题",
+                "- 外部依赖",
+            ],
+            "next_step": [
+                "这里写 handoff-first 的下一步：",
+                "",
+                "- 当前任务",
+                "- 已知负责人或角色",
+                "- 立刻要做的动作",
+            ],
+            "recent_pivots": [
+                "-",
+            ],
+        },
+    }[language]
     parts = [
         file_marker("rolling_summary", language),
         rolling_summary_header(tool_name, day),
@@ -1433,7 +1513,7 @@ def render_rolling_summary_template(tool_name: str, day: str, language: str, *, 
     ]
     for section_key in SECTION_KEYS["rolling_summary"]:
         parts.append("")
-        block = render_section_block(1, section_key, labels[section_key])
+        block = render_section_block(1, section_key, labels[section_key], guidance[section_key])
         parts.append(block)
     return "\n".join(parts) + "\n"
 
@@ -1893,6 +1973,28 @@ def continuity_digest_bundle(
         "blocked_digest": blocked_digest,
         "latest_relevant_log_digest": latest_relevant_log_digest,
         "suggested_handoff_sections": suggested_handoff_sections,
+    }
+
+
+def scan_auto_attached_context_text(text: str) -> dict:
+    hard_block_reasons: list[str] = []
+    warnings: list[str] = []
+
+    if INVISIBLE_UNICODE_RE.search(text):
+        hard_block_reasons.append("invisible_unicode")
+
+    for pattern in ATTACH_SCAN_HARD_BLOCK_PATTERNS:
+        if pattern.search(text):
+            hard_block_reasons.append(pattern.pattern)
+
+    for pattern in ATTACH_SCAN_WARNING_PATTERNS:
+        if pattern.search(text):
+            warnings.append(pattern.pattern)
+
+    return {
+        "blocked": bool(hard_block_reasons),
+        "hard_block_reasons": hard_block_reasons,
+        "warnings": warnings,
     }
 
 

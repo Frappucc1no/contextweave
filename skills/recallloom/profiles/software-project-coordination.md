@@ -31,6 +31,10 @@ In this profile, emphasize:
 - spec and plan alignment
 - reducing drift across sessions and tools
 - clear next-step ownership at the project level
+- active task visibility
+- blocker visibility
+- relevant files discipline
+- critical context that the next session must not rediscover
 
 ## File Emphasis
 
@@ -48,9 +52,15 @@ In this profile, emphasize:
 - `STORAGE_ROOT/rolling_summary.md`
   Focus on:
   - `current_state` for the actual validated project state right now
+    - make active state explicit rather than implied
+    - call out the relevant files that a new session will likely need next
+    - call out critical context that should not be reconstructed from memory
   - `active_judgments` for active coordination assumptions, tradeoffs, or decisions
+    - keep key decisions visible in the current snapshot rather than buried in old notes
   - `risks_open_questions` for blockers, unresolved dependencies, and verification gaps
+    - prefer explicit blocked items over vague risk wording
   - `next_step` for the next coordination move
+    - prefer a handoff-first active task statement, not just a generic next idea
 
 - `STORAGE_ROOT/daily_logs/`
   Record milestone implementation outcomes, validated changes, and meaningful coordination shifts.

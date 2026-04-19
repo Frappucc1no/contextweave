@@ -30,6 +30,7 @@ from _common import (
     remove_bridge_block,
     render_bridge_block,
     replace_or_insert_bridge,
+    scan_auto_attached_context_text,
     workspace_write_lock,
 )
 
@@ -220,8 +221,21 @@ def main() -> None:
 
                 if args.remove:
                     updated_text, changed = remove_bridge_block(current_text)
+                    scan_result = None
                 else:
                     block = render_bridge_block(workspace, target)
+                    scan_result = scan_auto_attached_context_text(block)
+                    if scan_result["blocked"]:
+                        exit_with_cli_error(
+                            parser,
+                            json_mode=args.json,
+                            exit_code=2,
+                            message=(
+                                "Refusing to attach continuity text because the auto-attached bridge block "
+                                "failed the attached-text safety scan: "
+                                + ", ".join(scan_result["hard_block_reasons"])
+                            ),
+                        )
                     updated_text = replace_or_insert_bridge(current_text, block)
                     changed = updated_text != current_text
 
@@ -299,6 +313,7 @@ def main() -> None:
                         "changed": changed,
                         "state_changed": state_changed,
                         "applied": args.yes and (changed or state_changed),
+                        "attach_scan": scan_result,
                     }
                 )
     except LockBusyError as exc:
