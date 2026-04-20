@@ -1,0 +1,10 @@
+description = "Show RecallLoom continuity status for the current project"
+prompt = """
+RecallLoom status:
+!{__DISPATCHER_COMMAND__ status . --json}
+
+Summarize briefly:
+- current continuity confidence
+- the top recommended actions
+- the current workday recommendation
+"""

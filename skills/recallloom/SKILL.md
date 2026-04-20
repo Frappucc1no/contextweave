@@ -43,9 +43,41 @@ Typical triggers include:
 - continue this project
 - restore project context
 - pick up where we left off
+- rl-init
 - update the project memory
 - record today’s progress
 - prepare a clean next-step handoff inside the maintained project files
+
+## First Attach Behavior
+
+On first explicit invocation in a project, RecallLoom should not assume the workspace is already initialized.
+
+The correct flow is:
+
+1. detect whether a valid RecallLoom sidecar already exists
+2. if it exists, continue normally without making initialization into extra ceremony
+3. if it does not exist, explain that the project is not initialized yet and ask whether initialization should be performed
+4. if the user explicitly confirms, or directly says `rl-init`, run the standard initialization action
+
+For this package, the intended initialization action is:
+
+- initialize the sidecar
+- validate the workspace
+- return the next recommended actions
+
+This means `rl-init` should be treated as a stable high-level action name, even in hosts that do not expose it as a native slash command.
+
+## Current Action Surface
+
+For the current package line, the stable action names are:
+
+- `rl-init`
+- `rl-validate`
+- `rl-status`
+- `rl-bridge`
+
+`rl-init` is the primary first-attach action.
+The others are operator-facing stable action names that can be interpreted by the host agent or mapped into native custom commands when the host supports that surface.
 
 ## Core File Model
 
@@ -102,7 +134,7 @@ See `references/operation-playbooks.md` for the full flow.
 
 ## Current Read-Side Helpers
 
-The current `0.3.0` line now has three read-side helper directions worth knowing:
+The current `0.3.1` line now has three read-side helper directions worth knowing:
 
 - `preflight_context_check.py`
   - revision-aware freshness review before formal writes

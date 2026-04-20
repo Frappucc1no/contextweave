@@ -80,7 +80,7 @@ When deterministic write safety matters, use this flow:
 3. use `commit_context_file.py` for `rolling_summary.md`, `context_brief.md`, or `update_protocol.md`
 4. use `append_daily_log_entry.py` for daily-log milestone entries
 
-In the current `0.3.0` release line, those revision-aware write helpers do not independently reread `update_protocol.md` before every write.
+In the current `0.3.1` release line, those revision-aware write helpers do not independently reread `update_protocol.md` before every write.
 
 ## End-of-Day Update
 
