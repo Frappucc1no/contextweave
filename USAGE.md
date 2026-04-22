@@ -21,6 +21,22 @@ This package itself stays host-agnostic:
 
 This installable package does not bundle host-specific adapter docs or a custom launcher.
 
+## Public Language Rules
+
+RecallLoom should default to user task language rather than internal implementation language.
+
+- Prefer “initialize”, “restore”, “import existing project reality”, “continue”, and “record progress”.
+- Do not make helper names, section keys, or the internal `coldstart` label the first thing users see.
+- Treat internal action names as operator surfaces, not as the default public mental model.
+
+## Fast And Deep Paths
+
+RecallLoom now treats fast path as the default interaction mode.
+
+- Fast path: shortest trustworthy route, lowest interruption cost, and usually one short interaction.
+- Deep path: only when sources conflict, source coverage is insufficient, risk is too high for a direct recommendation, or the user explicitly asks for deeper review.
+- Host-memory signals remain opt-in and hint-only; if they participate, the interaction should bias toward explicit review rather than silent trust.
+
 ## Installation Shape
 
 The installed package directory should keep the name `recallloom/`.
@@ -84,14 +100,14 @@ npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
 Keep the package contents together.
 Do not copy only `SKILL.md` without the accompanying `references/`, `profiles/`, `scripts/`, and `native_commands/` folders.
 Do not remove `package-metadata.json`; it is the package's version and capability source of truth.
-Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets on the current `0.3.1` release line.
+Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets on the current `0.3.2` release line.
 When building a public release from a source checkout, exclude local metadata and caches such as `.git/`, `__pycache__/`, `*.pyc`, and `.DS_Store`.
 
 For controlled audit or regression checks, you may temporarily point helpers at an alternate managed-assets file by setting `RECALLLOOM_MANAGED_ASSETS_PATH=/absolute/path/to/file.json` for that single command invocation.
 
 ## Managed Asset Registry
 
-The current `0.3.1` release line ships:
+The current `0.3.2` release line ships:
 
 - `managed-assets.json`
 
@@ -122,14 +138,14 @@ RecallLoom expects a host agent tool that can:
 
 RecallLoom does not promise safe arbitrary overlapping writes to the same project workspace.
 
-For the current `0.3.1` release line, the packaged mutating helpers enforce a minimal hard-guard layer:
+For the current `0.3.2` release line, the packaged mutating helpers enforce a minimal hard-guard layer:
 
 - project-scoped write locking
 - atomic replace for managed overwrite-style files
 - revision-aware commits for `context_brief.md`, `rolling_summary.md`, and `update_protocol.md`
 - revision-aware milestone appends for daily logs
 
-For the current `0.3.1` release line:
+For the current `0.3.2` release line:
 
 - read-only helpers may run at any time
 - mutating helpers are serialized single-project operations
@@ -146,7 +162,7 @@ The packaged helper scripts currently assume:
 - a UTF-8 capable filesystem environment
 - a file-based project workspace that the host agent can read and update
 
-Current package `0.3.1` / protocol `1.0` runtime limits:
+Current package `0.3.2` / protocol `1.0` runtime limits:
 
 <!-- RecallLoom metadata sync start: runtime-requirements -->
 - minimum Python version: `3.10`
@@ -206,7 +222,7 @@ They are not the primary user interface of RecallLoom.
 
 ## Unified Command Entry
 
-The current `0.3.1` release line introduces a single operator-friendly dispatcher:
+The current `0.3.2` release line introduces a single operator-friendly dispatcher:
 
 - `scripts/recallloom.py`
 
@@ -250,7 +266,7 @@ For the current release, the primary user flow remains:
 
 ## Native Command Wrappers
 
-The current `0.3.1` line also ships a helper for hosts that support native custom commands:
+The current `0.3.2` line also ships a helper for hosts that support native custom commands:
 
 - `scripts/install_native_commands.py`
 
@@ -269,16 +285,32 @@ Current wrapper scope:
 Typical project-scoped install examples:
 
 ```bash
-python scripts/install_native_commands.py . --host claude-code --scope project --yes
-python scripts/install_native_commands.py . --host gemini-cli --scope project --yes
-python scripts/install_native_commands.py . --host opencode --scope project --yes
+<python-3.10+ interpreter> scripts/install_native_commands.py <ABS_PROJECT_ROOT> --host claude-code --scope project --yes
+<python-3.10+ interpreter> scripts/install_native_commands.py <ABS_PROJECT_ROOT> --host gemini-cli --scope project --yes
+<python-3.10+ interpreter> scripts/install_native_commands.py <ABS_PROJECT_ROOT> --host opencode --scope project --yes
 ```
 
 If you want all supported host wrappers at once:
 
 ```bash
-python scripts/install_native_commands.py . --host all --scope project --yes
+<python-3.10+ interpreter> scripts/install_native_commands.py <ABS_PROJECT_ROOT> --host all --scope project --yes
 ```
+
+User-scoped install remains supported, but it is intentionally downgraded in the public guidance:
+
+```bash
+<python-3.10+ interpreter> scripts/install_native_commands.py <ABS_PROJECT_ROOT> --host claude-code --scope user --yes
+```
+
+Use `user` scope only when you explicitly want wrappers in your host-global command directory and accept that they depend on an absolute dispatcher path. The public default remains `project` scope.
+
+`project` scope is only naturally more portable when the dispatcher path itself lives inside the project and can remain relative. If the helper reports that `scope=project` still produced an absolute dispatcher path, treat that install as a portability downgrade rather than assuming project scope is automatically stable.
+
+Important target-path note:
+
+- when you run this helper from inside the installed `recallloom/` package directory, do **not** use that package directory as the `project` scope target
+- `project` scope should point at the real project root where you want `.claude/commands`, `.gemini/commands`, or `.opencode/commands` to be created
+- if your host environment does not expose a plain `python` command, either use the correct interpreter directly or pass `--dispatcher-command`
 
 Important boundary:
 
@@ -287,6 +319,9 @@ Important boundary:
 - they all delegate to the same underlying dispatcher
 - bridge and continuity state semantics stay unchanged
 - they are not the primary user path for the current release
+- the generated dispatcher command uses the current Python interpreter path by default, which is safer across environments than assuming a global `python` alias
+- in `v0.3.2`, native wrapper scope intentionally remains limited to `rl-init`, `rl-status`, and `rl-validate`
+- `rl-bridge` remains part of the action surface through the dispatcher and helper scripts, but is not required as a native wrapper in this release line
 
 ## Helper Script Map
 
@@ -314,6 +349,10 @@ The installable package currently ships these user-facing helper scripts:
   - `claude-code`
   - `gemini-cli`
   - `opencode`
+- Scope recommendation:
+  - `project` scope is the recommended public default
+  - `user` scope remains supported but is intentionally downgraded because it depends on a stable absolute dispatcher path
+  - `project` scope can still degrade to an absolute dispatcher path when the dispatcher itself is outside the project; when that happens, expect advisory output and treat it as less portable than a relative in-project dispatcher
 
 ### `init_context.py`
 
@@ -393,7 +432,7 @@ The installable package currently ships these user-facing helper scripts:
 - Explicit intent model: `--session-intent` lets the caller elevate the user's current intent into the recommendation decision, using the same recommendation-type vocabulary returned by the helper
 - Date priority model: an explicit `--preferred-date` takes priority over the helper's default suggestion. If the preferred date disagrees with the heuristic result, the helper returns `review_date_before_append`.
 - Project-local override model: if `update_protocol.md` contains explicit workday or time-policy cues, the helper surfaces those cues and may return `review_date_before_append` instead of silently applying the heuristic suggestion
-- Current scope note: the machineized signal set currently includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues. Broader workspace new-day trajectory remains an operator-reviewed signal rather than a separate machine-readable contract in `v0.3.1`.
+- Current scope note: the machineized signal set currently includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues. Broader workspace new-day trajectory remains an operator-reviewed signal rather than a separate machine-readable contract in `v0.3.2`.
 - Relationship to preflight: this helper complements, not replaces, `preflight_context_check.py`; use it when deciding the likely workday path, then still use preflight before formal writes
 
 ### `summarize_continuity_status.py`
@@ -408,12 +447,24 @@ The installable package currently ships these user-facing helper scripts:
 - Scope note: this helper is an orientation surface, not a write surface; formal writes still require `preflight_context_check.py` plus the normal revision-aware helpers
 - Current read-side note: this helper now shares the same freshness baseline and handoff-first digest fields as `preflight_context_check.py`
 
+### `generate_coldstart_proposal.py`
+
+- Purpose: generate a structured cold-start proposal from controlled source tiers before any continuity promotion happens
+- Typical use: when a workspace is initialized but still empty-shell and you want a reviewable initial proposal instead of writing directly into `rolling_summary.md` or `context_brief.md`
+- Writes files: no
+- Safety model: read-only; Tier A/B/C are scanned by default, Tier D only enters through explicit `--source`, Tier E git signal only enters through explicit `--include-git-signal`, and Tier F host-memory sources remain disabled by default
+- Host-memory adapter note: `--enable-host-memory` reserves the Tier F adapter entrance, but it stays explicit and hint-only. Enabling it requires an explicit source label, exactly one of `--host-memory-path` or `--host-memory-command`, and an explicit confidence level. Path mode may read the given file; command mode is declared in metadata but not auto-executed.
+- Path-selection note: returns a `path_recommendation` object that distinguishes `fast_path` from `deep_path`. Fast path is recommended only when project framing plus current-state signals are already sufficient; host-memory use or weak source coverage upgrades the recommendation to deep path.
+- Output model: returns a proposal markdown body plus machine-readable metadata such as `source_tiers_used`, `proposal_sections_present`, detected promotion targets, host-memory adapter state, and the recommended interaction path
+- Promotion note: this helper does not stage, review, or promote anything by itself; pair it with `stage_recovery_proposal.py` only after the generated proposal has been checked
+
 ### `stage_recovery_proposal.py`
 
 - Purpose: stage a prepared recovery proposal into `companion/recovery/proposals/`
 - Typical use: after a human or model has prepared a recovery proposal from user-provided history materials
 - Writes files: yes
-- Safety model: acquires the project write lock, validates the proposal against the minimum `v0.3.1` section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
+- Safety model: acquires the project write lock, validates the proposal against the minimum `v0.3.2` section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
+- Structured output note: now returns machine-readable `proposal_sections_present`, detected source tiers, and detected promotion targets in addition to the staged proposal path
 - Scope note: this helper only manages proposal placement; it does not decide proposal contents and does not promote anything into core continuity files
 
 ### `record_recovery_review.py`
@@ -421,7 +472,8 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: record a prepared review note for a staged recovery proposal under `companion/recovery/review_log/`
 - Typical use: after a human or model reviews a proposal and wants to preserve the review outcome before promotion
 - Writes files: yes
-- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum `v0.3.1` review structure, refuses empty source content, and refuses to overwrite an existing review record
+- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum `v0.3.2` review structure, refuses empty source content, and refuses to overwrite an existing review record
+- Review-action note: returns a machine-readable `review_action` classification that distinguishes accept, accept-after-edit, reject, and hint-only outcomes
 - Scope note: this helper records review state only; promotion into `rolling_summary.md`, `daily_logs/`, or `context_brief.md` still goes through the normal helper write path
 
 ### `prepare_recovery_promotion.py`
@@ -429,7 +481,7 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: prepare structured safe-write context for a reviewed recovery proposal before promotion into core continuity files
 - Typical use: after a proposal and review record already exist and a model or human is ready to choose durable target content
 - Writes files: no
-- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum `v0.3.1` proposal/review structure
+- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum `v0.3.2` proposal/review structure
 - Output model: returns proposal/review digests plus the current `safe_write_context` for `rolling_summary.md`, `context_brief.md`, and the latest daily-log append cursor
 - Scope note: this helper does not promote anything by itself; it only prepares the promotion context for the existing write helpers
 
@@ -448,7 +500,7 @@ This keeps the split clear:
 - the agent decides what to write
 - the helper scripts refuse stale or overlapping writes when the revision context no longer matches
 - the helper scripts do not act as semantic editors or fact-checkers for the prepared content itself
-- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current `0.3.1` release line
+- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current `0.3.2` release line
 
 ### `remove_context.py`
 
@@ -456,7 +508,7 @@ This keeps the split clear:
 - Typical use: uninstall, cleanup for one project, or recovery removal for a damaged workspace
 - Writes files: yes
 - Safety model: preview-first; refuses non-managed assets unless `--force` is explicitly passed; refuses sidecar removal while managed bridge blocks still exist in root entry files
-- Uninstall note: the current `0.3.1` release line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
+- Uninstall note: the current `0.3.2` release line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
 - Recovery note: if normal workspace detection fails, this helper can fall back to recovery discovery; use `--storage-mode hidden|visible` to disambiguate sidecar conflicts
 - Failure note: if sidecar removal succeeds but follow-up cleanup such as `.git/info/exclude` removal fails, the helper reports that partial-cleanup state explicitly instead of hiding it behind a generic failure
 - Hidden-mode side effect: may remove the managed RecallLoom block from `.git/info/exclude`
@@ -467,7 +519,7 @@ This keeps the split clear:
 - Purpose: preview, apply, or remove thin bridges in supported root entry files
 - Typical use: connect root entry files to RecallLoom continuity files
 - Writes files: yes
-- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.3.1` release line accepts exactly one bridge target per invocation
+- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.3.2` release line accepts exactly one bridge target per invocation
 - Attach-safety note: bridge text is scanned before apply; obvious prompt overrides, invisible unicode, and secret-exfil patterns hard block the write, while suspicious-but-ambiguous patterns are surfaced as warnings in the scan result
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 
@@ -478,9 +530,11 @@ This keeps the split clear:
 - Writes files: no
 - Default read boundary: core continuity files first (`rolling_summary.md`, `context_brief.md`, latest active daily log, optional recent daily logs)
 - Ranking model: when match strength ties, current-state files are preferred over historical logs in this order: `rolling_summary.md` -> `context_brief.md` -> latest active daily log -> recent daily logs
-- Output model: returns `hits`, `citations`, `synthesized_recall`, `token_estimate`, `budget_hint`, `continuity_confidence`, `freshness_state`, `conflict_state`, `output_variant`, and `override_review_targets`
+- Output model: returns `answer`, `hits`, `citations`, `risk_freshness_note`, `synthesized_recall`, `token_estimate`, `budget_hint`, `continuity_confidence`, `freshness_state`, `conflict_state`, `output_variant`, and `override_review_targets`
+- Answer-first rule: the compact and detailed output surfaces now follow the same order: `answer -> supporting citations -> risk/freshness note`
 - Citation model: daily-log citations now include explicit `date` values in addition to `path`, `section`, and `source_type`
-- Freshness model: the helper now uses the fuller workspace-artifact freshness pass so `conflict_state` can explicitly surface cases such as `workspace_artifact_newer_than_summary`, `summary_revision_stale`, or `multi_source_review_recommended`
+- Freshness model: the helper now defaults to the quick freshness path and can explicitly upgrade to the fuller workspace-artifact freshness pass when `--full` is requested; `conflict_state` still explicitly surfaces cases such as `workspace_artifact_newer_than_summary`, `summary_revision_stale`, or `multi_source_review_recommended`
+- Freshness risk model: the returned `freshness_state` now also includes `freshness_risk_level` and `freshness_risk_note`, so quick-scan and stale-summary risk are explicit instead of hidden in lower-level booleans
 - Override model: when `update_protocol.md` exists, the helper now surfaces it as an explicit review target before the recall should be used to choose a write target
 - Output-variant model: `brief` maps to a compact attach-safe response, while `detailed` maps to a more expanded contextual response with a bounded `supporting_context_window`
 - Budget model: `supporting_context_window` is now trimmed by a small budget instead of expanding every top hit in detailed mode

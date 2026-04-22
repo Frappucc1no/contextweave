@@ -9,24 +9,48 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from core.continuity.freshness import (
+    continuity_state_for_workspace as shared_continuity_state_for_workspace,
+    continuity_digest_bundle,
+    evaluate_continuity_freshness,
+    freshness_risk_summary,
+    summary_matches_empty_shell_template as shared_summary_matches_empty_shell_template,
+)
+from core.protocol.contracts import FILE_KEYS
+from core.protocol.markers import parse_file_state_marker
+from core.protocol.sections import extract_section_text
+
 from _common import (
     ConfigContractError,
-    continuity_digest_bundle,
+    DAILY_LOGS_DIRNAME,
     detect_update_protocol_time_policy_cues,
     EnvironmentContractError,
-    evaluate_continuity_freshness,
     ensure_supported_python_version,
     exit_with_cli_error,
-    FILE_KEYS,
     find_recallloom_root,
     latest_active_daily_log,
     load_workspace_state,
     parse_daily_log_entry_line,
     parse_iso_date,
-    parse_file_state_marker,
     read_text,
     StorageResolutionError,
 )
+
+def summary_matches_empty_shell_template(summary_text: str) -> bool:
+    return shared_summary_matches_empty_shell_template(summary_text)
+
+
+def continuity_state_for_workspace(
+    *,
+    state: dict,
+    summary_text: str,
+    latest_daily_log_exists: bool,
+) -> tuple[str, bool]:
+    return shared_continuity_state_for_workspace(
+        state=state,
+        summary_text=summary_text,
+        latest_daily_log_exists=latest_daily_log_exists,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -129,13 +153,16 @@ def latest_daily_log_entry_info(latest_daily_log: Path | None):
 def recommended_actions_for_status(
     *,
     continuity_confidence: str,
+    continuity_state: str,
     update_protocol_exists: bool,
     context_brief_exists: bool,
     latest_daily_log_exists: bool,
     summary_stale: bool,
 ) -> list[str]:
     actions: list[str] = []
-    if summary_stale:
+    if continuity_state == "initialized_empty_shell":
+        actions.append("seed_initial_continuity")
+    elif summary_stale:
         actions.append("update_rolling_summary")
     else:
         actions.append("resume_from_summary")
@@ -145,8 +172,12 @@ def recommended_actions_for_status(
         actions.append("review_context_brief")
     if latest_daily_log_exists:
         actions.append("review_latest_daily_log")
-    if continuity_confidence == "medium" and "update_rolling_summary" not in actions:
-        actions.append("update_rolling_summary")
+    if (
+        continuity_state != "initialized_empty_shell"
+        and continuity_confidence == "medium"
+        and "update_rolling_summary" not in actions
+    ):
+        actions.append("consider_refresh_summary")
     return actions
 
 
@@ -325,15 +356,31 @@ def main() -> None:
             )
         context_brief_path = workspace.storage_root / FILE_KEYS["context_brief"]
         update_protocol_path = workspace.storage_root / FILE_KEYS["update_protocol"]
-        context_brief_state = (
-            parse_file_state_marker(read_text(context_brief_path)) if context_brief_path.is_file() else None
-        )
-        update_protocol_state = (
-            parse_file_state_marker(read_text(update_protocol_path)) if update_protocol_path.is_file() else None
-        )
+        context_brief_state = None
+        if context_brief_path.is_file():
+            context_brief_state = parse_file_state_marker(read_text(context_brief_path))
+            if context_brief_state is None:
+                exit_with_cli_error(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=f"Missing required file-state metadata marker: {context_brief_path}",
+                    payload={"continuity_confidence": "broken"},
+                )
+        update_protocol_state = None
+        if update_protocol_path.is_file():
+            update_protocol_state = parse_file_state_marker(read_text(update_protocol_path))
+            if update_protocol_state is None:
+                exit_with_cli_error(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=f"Missing required file-state metadata marker: {update_protocol_path}",
+                    payload={"continuity_confidence": "broken"},
+                )
         summary_text = read_text(summary_path)
         update_protocol_text = read_text(update_protocol_path) if update_protocol_path.is_file() else ""
-        latest_daily_log = latest_active_daily_log(workspace.storage_root / "daily_logs")
+        latest_daily_log = latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME)
         latest_daily_log_entry = latest_daily_log_entry_info(latest_daily_log)
         latest_daily_log_text = read_text(latest_daily_log) if latest_daily_log is not None else ""
         freshness = evaluate_continuity_freshness(
@@ -349,10 +396,30 @@ def main() -> None:
             summary_text=summary_text,
             latest_daily_log_text=latest_daily_log_text,
         )
+        continuity_state, continuity_seeded = continuity_state_for_workspace(
+            state=state,
+            summary_text=summary_text,
+            latest_daily_log_exists=latest_daily_log is not None,
+        )
+        if continuity_state == "initialized_empty_shell":
+            digests = {
+                "active_task_digest": None,
+                "blocked_digest": None,
+                "latest_relevant_log_digest": None,
+                "suggested_handoff_sections": [],
+            }
         summary_stale = freshness["summary_stale"]
         confidence = freshness["continuity_confidence"]
+        freshness_risk = freshness_risk_summary(
+            workspace_artifact_scan_mode=freshness["workspace_artifact_scan_mode"],
+            workspace_artifact_scan_performed=freshness["workspace_artifact_scan_performed"],
+            workspace_artifact_newer_than_summary=freshness["workspace_artifact_newer_than_summary"],
+            summary_revision_stale=freshness["summary_revision_stale"],
+            continuity_confidence=confidence,
+        )
         actions = recommended_actions_for_status(
             continuity_confidence=confidence,
+            continuity_state=continuity_state,
             update_protocol_exists=update_protocol_path.is_file(),
             context_brief_exists=context_brief_path.is_file(),
             latest_daily_log_exists=latest_daily_log is not None,
@@ -362,7 +429,10 @@ def main() -> None:
             now=now,
             rollover_hour=args.rollover_hour,
             latest_daily_log=latest_daily_log,
-            summary_next_step_is_empty=digests["active_task_digest"] is None,
+            summary_next_step_is_empty=(
+                continuity_state == "initialized_empty_shell"
+                or digests["active_task_digest"] is None
+            ),
             preferred_date_raw=args.preferred_date,
             update_protocol_text=update_protocol_text,
             host_explicit=args.timezone is not None or args.rollover_hour != 3,
@@ -396,6 +466,10 @@ def main() -> None:
         "workspace_newer_than_summary": freshness["workspace_newer_than_summary"],
         "summary_stale": summary_stale,
         "continuity_confidence": confidence,
+        "freshness_risk_level": freshness_risk["level"],
+        "freshness_risk_note": freshness_risk["note"],
+        "continuity_state": continuity_state,
+        "continuity_seeded": continuity_seeded,
         "active_task_digest": digests["active_task_digest"],
         "blocked_digest": digests["blocked_digest"],
         "latest_relevant_log_digest": digests["latest_relevant_log_digest"],
@@ -415,6 +489,8 @@ def main() -> None:
             ),
             "logical_workday_seen": workday["logical_workday"],
             "continuity_confidence": confidence,
+            "continuity_state": continuity_state,
+            "continuity_seeded": continuity_seeded,
             "task_type": "status_review",
         },
         "workday": workday,
@@ -425,6 +501,9 @@ def main() -> None:
     else:
         print(f"RecallLoom root: {workspace.project_root}")
         print(f"Continuity confidence: {confidence}")
+        if freshness_risk["note"]:
+            print(f"Freshness risk: {freshness_risk['level']} - {freshness_risk['note']}")
+        print(f"Continuity state: {continuity_state}")
         print("Recommended actions:")
         for action in actions:
             print(f"  - {action}")

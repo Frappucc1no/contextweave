@@ -8,18 +8,18 @@ import json
 import shutil
 from pathlib import Path
 
-from _common import (
+from core.bridge.blocks import (
     bridge_block_integrity,
-    BRIDGE_START,
+)
+from core.protocol.contracts import BRIDGE_START, ROOT_ENTRY_CANDIDATES
+
+from _common import (
     ConfigContractError,
-    exclude_block_integrity,
     EnvironmentContractError,
     exit_with_cli_error,
     find_recovery_workspace,
     LockBusyError,
-    managed_exclude_block_text,
     read_text,
-    ROOT_ENTRY_CANDIDATES,
     StorageResolutionError,
     ensure_supported_python_version,
     find_recallloom_root,
@@ -187,6 +187,31 @@ def main() -> None:
                 )
 
             if args.yes:
+                if workspace.storage_mode == "hidden":
+                    try:
+                        removed_git_exclude_block = remove_git_exclude_block(workspace.project_root)
+                    except ConfigContractError as exc:
+                        exit_with_cli_error(
+                            parser,
+                            json_mode=args.json,
+                            exit_code=2,
+                            message=str(exc),
+                        )
+                    except LockBusyError as exc:
+                        exit_with_cli_error(
+                            parser,
+                            json_mode=args.json,
+                            exit_code=3,
+                            message=str(exc),
+                        )
+                    except OSError as exc:
+                        exit_with_cli_error(
+                            parser,
+                            json_mode=args.json,
+                            exit_code=2,
+                            message=f"Filesystem error: {exc}",
+                        )
+
                 tombstone = unique_tombstone_path(workspace.project_root, storage_root.name)
                 storage_root.rename(tombstone)
                 tombstone_path = str(tombstone)
@@ -203,31 +228,6 @@ def main() -> None:
                     storage_cleanup_error = (
                         f"Sidecar was moved to {tombstone}, but cleanup of the tombstone failed: {exc}"
                     )
-                if workspace.storage_mode == "hidden":
-                    exclude_path = workspace.project_root / ".git" / "info" / "exclude"
-                    try:
-                        removed_git_exclude_block = remove_git_exclude_block(workspace.project_root)
-                    except (LockBusyError, OSError) as exc:
-                        exclude_cleanup_error = (
-                            "Sidecar removal succeeded, but cleanup of the RecallLoom block in "
-                            f".git/info/exclude failed: {exc}"
-                        )
-                    else:
-                        if exclude_path.is_file():
-                            exclude_text = exclude_path.read_text(encoding="utf-8")
-                            ok, reason = exclude_block_integrity(exclude_text)
-                            has_managed_block = managed_exclude_block_text(exclude_text) is not None
-                            if not removed_git_exclude_block and (has_managed_block or not ok):
-                                detail_map = {
-                                    "exclude_start_end_mismatch": "managed block start/end markers are mismatched",
-                                    "exclude_duplicate_blocks": "multiple managed exclude blocks are present",
-                                    "exclude_order_invalid": "managed block markers are out of order",
-                                }
-                                detail = detail_map.get(reason, "the managed exclude block still appears malformed or incomplete")
-                                exclude_cleanup_error = (
-                                    "Sidecar removal succeeded, but the RecallLoom block in .git/info/exclude "
-                                    f"was not fully cleaned up because {detail}."
-                                )
 
             payload = {
                 "project_root": str(workspace.project_root),

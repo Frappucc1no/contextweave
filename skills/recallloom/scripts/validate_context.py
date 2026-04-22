@@ -7,43 +7,53 @@ import argparse
 import json
 from pathlib import Path
 
-from _common import (
-    ConfigContractError,
-    EnvironmentContractError,
-    exit_with_cli_error,
+from core.bridge.blocks import (
+    bridge_block_integrity,
+    exclude_block_integrity,
+    managed_exclude_block_text,
+)
+from core.protocol.contracts import (
+    BRIDGE_START,
     FILE_KEYS,
     LAST_WRITER_RE,
     OPTIONAL_SECTION_KEYS,
     ROOT_ENTRY_CANDIDATES,
     SECTION_KEYS,
-    StorageResolutionError,
     SUPPORTED_PROTOCOL_VERSIONS,
-    ValidationFinding,
-    bridge_block_integrity,
-    BRIDGE_START,
-    CONTEXT_DIRNAME,
+)
+from core.protocol.markers import (
+    parse_daily_log_entry_marker,
+    parse_daily_log_scaffold_marker,
+    parse_file_marker,
+    parse_file_state_marker,
+)
+from core.protocol.sections import (
     duplicate_section_keys,
+    missing_section_keys,
+    unknown_section_keys,
+)
+
+from _common import (
+    ConfigContractError,
+    DAILY_LOGS_DIRNAME,
+    EnvironmentContractError,
+    exit_with_cli_error,
+    StorageResolutionError,
+    ValidationFinding,
+    CONTEXT_DIRNAME,
     ensure_supported_python_version,
-    exclude_block_integrity,
     find_recallloom_root,
     invalid_iso_like_daily_log_files,
     load_workspace_state,
-    missing_section_keys,
-    managed_exclude_block_text,
     is_optional_storage_file,
     is_required_storage_directory,
     is_required_storage_file,
     parse_daily_log_entry_line,
-    parse_daily_log_entry_marker,
-    parse_daily_log_scaffold_marker,
     unknown_storage_assets,
-    parse_file_marker,
-    parse_file_state_marker,
     parse_iso_date,
     read_text,
     sorted_active_daily_log_files,
     sorted_daily_log_files,
-    unknown_section_keys,
     validate_iso_date,
 )
 
@@ -385,7 +395,7 @@ def validate_rolling_summary(workspace, state: dict | None, findings: list[Valid
 
 
 def validate_daily_logs(workspace, state: dict | None, findings: list[ValidationFinding]) -> None:
-    logs_dir = workspace.storage_root / "daily_logs"
+    logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
     if not logs_dir.is_dir():
         level = "error" if is_required_storage_directory("daily_logs") else "warning"
         add_finding(findings, level, "missing_daily_logs", "Missing required directory: daily_logs", logs_dir)
@@ -527,7 +537,7 @@ def validate_daily_logs(workspace, state: dict | None, findings: list[Validation
 
 
 def validate_unknown_storage_assets(workspace, findings: list[ValidationFinding]) -> None:
-    invalid_daily_logs = set(invalid_iso_like_daily_log_files(workspace.storage_root / "daily_logs"))
+    invalid_daily_logs = set(invalid_iso_like_daily_log_files(workspace.storage_root / DAILY_LOGS_DIRNAME))
     for path in unknown_storage_assets(workspace.storage_root):
         if path in invalid_daily_logs:
             continue
@@ -681,7 +691,7 @@ def validate_daily_log_state(workspace, state: dict | None, findings: list[Valid
         return
     daily_state = state.get("daily_logs", {})
     latest_file = daily_state.get("latest_file")
-    actual_latest = sorted_active_daily_log_files(workspace.storage_root / "daily_logs")
+    actual_latest = sorted_active_daily_log_files(workspace.storage_root / DAILY_LOGS_DIRNAME)
     actual_latest_rel = (
         str(actual_latest[-1].relative_to(workspace.storage_root))
         if actual_latest

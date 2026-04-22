@@ -1,0 +1,40 @@
+name: RecallLoom Contract Doc Sync
+
+on:
+  pull_request:
+    paths:
+      - "skills/recallloom/references/contract-registry.json"
+      - "skills/recallloom/references/contract-schema.json"
+      - "skills/recallloom/references/protocol.md"
+      - "skills/recallloom/references/file-contracts.md"
+      - "README.md"
+      - "skills/recallloom/SKILL.md"
+      - "skills/recallloom/scripts/sync_contract_docs.py"
+      - "USAGE.md"
+  push:
+    branches:
+      - main
+    paths:
+      - "skills/recallloom/references/contract-registry.json"
+      - "skills/recallloom/references/contract-schema.json"
+      - "skills/recallloom/references/protocol.md"
+      - "skills/recallloom/references/file-contracts.md"
+      - "README.md"
+      - "skills/recallloom/SKILL.md"
+      - "skills/recallloom/scripts/sync_contract_docs.py"
+      - "USAGE.md"
+
+jobs:
+  contract-doc-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Check registry-driven doc sync
+        run: python3 skills/recallloom/scripts/sync_contract_docs.py --check --json

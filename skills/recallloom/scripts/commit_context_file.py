@@ -7,33 +7,36 @@ import argparse
 import json
 from pathlib import Path
 
+from core.protocol.contracts import FILE_KEYS, OPTIONAL_SECTION_KEYS, SECTION_KEYS
+from core.protocol.markers import (
+    file_marker,
+    file_state_marker,
+    parse_file_marker,
+    parse_file_state_marker,
+    rolling_summary_header,
+)
+from core.protocol.sections import (
+    duplicate_section_keys,
+    missing_section_keys,
+    unknown_section_keys,
+)
+
 from _common import (
     ConfigContractError,
     DISPLAY_NAME,
     EnvironmentContractError,
-    FILE_KEYS,
     LockBusyError,
-    OPTIONAL_SECTION_KEYS,
-    SECTION_KEYS,
     StorageResolutionError,
     atomic_write_if_unchanged,
-    duplicate_section_keys,
     dump_json,
     ensure_supported_python_version,
     exit_with_cli_error,
-    file_marker,
-    file_state_marker,
     find_recallloom_root,
     load_workspace_state,
-    missing_section_keys,
     now_iso_timestamp,
-    parse_file_marker,
-    parse_file_state_marker,
     read_text,
     restore_text_snapshot,
-    rolling_summary_header,
     today_iso,
-    unknown_section_keys,
     validate_tool_name,
     validate_writer_id,
     workspace_write_lock,

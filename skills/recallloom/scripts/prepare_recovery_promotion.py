@@ -7,17 +7,28 @@ import argparse
 import json
 from pathlib import Path
 
+from core.coldstart.structured import (
+    PROPOSAL_SECTION_ALIASES,
+    REVIEW_SECTION_ALIASES,
+    classify_review_action,
+    detect_promotion_targets,
+    detect_source_tiers,
+    extract_structured_sections,
+    promotion_ready_for_action,
+)
+from core.protocol.contracts import FILE_KEYS
+from core.protocol.markers import parse_file_state_marker
+
 from _common import (
     ConfigContractError,
+    DAILY_LOGS_DIRNAME,
     EnvironmentContractError,
     ensure_supported_python_version,
     exit_with_cli_error,
-    FILE_KEYS,
     find_recallloom_root,
     latest_active_daily_log,
     load_workspace_state,
     parse_daily_log_entry_line,
-    parse_file_state_marker,
     read_text,
     RECOVERY_PROPOSAL_FILE_RE,
     REVIEW_RECORD_FILE_RE,
@@ -201,6 +212,12 @@ def main() -> None:
             exit_code=2,
             message="Recovery review failed structure checks:\n- " + "\n- ".join(review_errors),
         )
+    proposal_sections = extract_structured_sections(proposal_text, PROPOSAL_SECTION_ALIASES)
+    review_sections = extract_structured_sections(review_text, REVIEW_SECTION_ALIASES)
+    source_tiers_detected = detect_source_tiers(proposal_text)
+    promotion_targets_detected = detect_promotion_targets(proposal_text)
+    review_action = classify_review_action(review_sections)
+    promotion_ready = promotion_ready_for_action(review_action)
 
     try:
         state_path = workspace.storage_root / FILE_KEYS["state"]
@@ -238,7 +255,7 @@ def main() -> None:
                 exit_code=2,
                 message=f"Missing required file-state metadata marker: {context_brief_path}",
             )
-        latest_daily_log = latest_active_daily_log(workspace.storage_root / "daily_logs")
+        latest_daily_log = latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME)
         latest_daily_log_entry = latest_daily_log_entry_info(latest_daily_log)
     except ConfigContractError as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
@@ -251,10 +268,15 @@ def main() -> None:
         "storage_root": str(workspace.storage_root),
         "proposal_path": str(proposal_path),
         "proposal_digest": text_digest(proposal_text),
+        "proposal_sections_present": sorted(proposal_sections.keys()),
+        "source_tiers_detected": source_tiers_detected,
+        "promotion_targets_detected": promotion_targets_detected,
         "review_path": str(review_path),
         "review_digest": text_digest(review_text),
-        "promotion_ready": True,
-        "safe_write_context": {
+        "review_sections_present": sorted(review_sections.keys()),
+        "review_action": review_action,
+        "promotion_ready": promotion_ready,
+        "safe_write_context": ({
             "workspace_revision": state["workspace_revision"],
             "commit_context_file": {
                 "rolling_summary": {
@@ -281,7 +303,7 @@ def main() -> None:
                 "suggested_date": latest_daily_log.stem if latest_daily_log is not None else None,
                 "expected_workspace_revision": state["workspace_revision"],
             },
-        },
+        } if promotion_ready else None),
         "notes": [
             "This helper does not promote any content into core continuity files.",
             "Only rolling_summary.md, context_brief.md, and daily log appends are valid promotion targets for reviewed recovery content.",

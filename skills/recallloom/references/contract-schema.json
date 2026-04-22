@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://recallloom.dev/schemas/contract-schema.json",
+  "title": "RecallLoom Contract Registry",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "registry_version",
+    "protocol",
+    "workspace",
+    "files",
+    "markers",
+    "dynamic_asset_rule_kinds",
+    "doc_sync_blocks"
+  ],
+  "properties": {
+    "registry_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "current",
+        "supported"
+      ],
+      "properties": {
+        "current": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "supported": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/nonEmptyString"
+          }
+        }
+      }
+    },
+    "workspace": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "languages",
+        "storage_modes",
+        "bridge_targets"
+      ],
+      "properties": {
+        "languages": {
+          "$ref": "#/$defs/stringList"
+        },
+        "storage_modes": {
+          "$ref": "#/$defs/stringList"
+        },
+        "bridge_targets": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "config",
+        "state",
+        "context_brief",
+        "rolling_summary",
+        "daily_log",
+        "update_protocol"
+      ],
+      "properties": {
+        "config": {
+          "$ref": "#/$defs/staticFileContract"
+        },
+        "state": {
+          "$ref": "#/$defs/staticFileContract"
+        },
+        "context_brief": {
+          "$ref": "#/$defs/documentContract"
+        },
+        "rolling_summary": {
+          "$ref": "#/$defs/documentContract"
+        },
+        "daily_log": {
+          "$ref": "#/$defs/dynamicDocumentContract"
+        },
+        "update_protocol": {
+          "$ref": "#/$defs/updateProtocolContract"
+        }
+      }
+    },
+    "markers": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file",
+        "file_state",
+        "daily_log_entry",
+        "daily_log_scaffold",
+        "last_writer",
+        "bridge",
+        "git_exclude"
+      ],
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/templatedMarker"
+        },
+        "file_state": {
+          "$ref": "#/$defs/templatedMarker"
+        },
+        "daily_log_entry": {
+          "$ref": "#/$defs/templatedMarker"
+        },
+        "daily_log_scaffold": {
+          "$ref": "#/$defs/templatedMarker"
+        },
+        "last_writer": {
+          "$ref": "#/$defs/templatedMarker"
+        },
+        "bridge": {
+          "$ref": "#/$defs/rangeMarker"
+        },
+        "git_exclude": {
+          "$ref": "#/$defs/rangeMarker"
+        }
+      }
+    },
+    "dynamic_asset_rule_kinds": {
+      "$ref": "#/$defs/stringList"
+    },
+    "doc_sync_blocks": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/docSyncBlock"
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stringList": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "sectionList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/nonEmptyString"
+      }
+    },
+    "languageLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "staticFileContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "required_sections",
+        "optional_sections",
+        "render_order",
+        "labels"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "required_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "optional_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "render_order": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "labels": {
+          "type": "object"
+        }
+      }
+    },
+    "documentContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "required_sections",
+        "optional_sections",
+        "render_order",
+        "labels"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "required_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "optional_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "render_order": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "labels": {
+          "$ref": "#/$defs/languageLabels"
+        }
+      }
+    },
+    "dynamicDocumentContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path_pattern",
+        "required_sections",
+        "optional_sections",
+        "render_order",
+        "labels"
+      ],
+      "properties": {
+        "path_pattern": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "required_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "optional_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "render_order": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "labels": {
+          "$ref": "#/$defs/languageLabels"
+        }
+      }
+    },
+    "updateProtocolLabels": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "title",
+          "body"
+        ],
+        "properties": {
+          "title": {
+            "$ref": "#/$defs/nonEmptyString"
+          },
+          "body": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "updateProtocolContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "required_sections",
+        "optional_sections",
+        "render_order",
+        "labels"
+      ],
+      "properties": {
+        "path": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "required_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "optional_sections": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "render_order": {
+          "$ref": "#/$defs/sectionList"
+        },
+        "labels": {
+          "$ref": "#/$defs/updateProtocolLabels"
+        }
+      }
+    },
+    "templatedMarker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "template",
+        "regex"
+      ],
+      "properties": {
+        "template": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "regex": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "rangeMarker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "end": {
+          "$ref": "#/$defs/nonEmptyString"
+        }
+      }
+    },
+    "docSyncBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_keys",
+        "targets"
+      ],
+      "properties": {
+        "source_keys": {
+          "$ref": "#/$defs/stringList"
+        },
+        "targets": {
+          "$ref": "#/$defs/stringList"
+        }
+      }
+    }
+  }
+}

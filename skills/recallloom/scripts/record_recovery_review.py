@@ -7,6 +7,12 @@ import argparse
 import json
 from pathlib import Path
 
+from core.coldstart.structured import (
+    REVIEW_SECTION_ALIASES,
+    classify_review_action,
+    extract_structured_sections,
+)
+
 from _common import (
     ConfigContractError,
     EnvironmentContractError,
@@ -159,6 +165,8 @@ def main() -> None:
         "review_path": str(review_path),
         "source_file": str(source_path),
         "source_digest": text_digest(body_text),
+        "review_sections_present": sorted(extract_structured_sections(body_text, REVIEW_SECTION_ALIASES).keys()),
+        "review_action": classify_review_action(extract_structured_sections(body_text, REVIEW_SECTION_ALIASES)),
         "recorded_at": now_iso_timestamp(),
     }
     if args.json:

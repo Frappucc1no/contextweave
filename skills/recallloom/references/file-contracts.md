@@ -127,7 +127,7 @@ Current supported `workspace_language` values for protocol `1.0`:
 Managed asset registry note:
 
 - protocol `1.0` core semantics remain defined by this document
-- the current `0.3.1` release line additionally ships `recallloom/managed-assets.json`
+- the current `0.3.2` release line additionally ships `recallloom/managed-assets.json`
   as the single declaration source for:
   - required managed files
   - optional managed files
@@ -136,6 +136,97 @@ Managed asset registry note:
   - allowed dynamic file patterns
   - optional managed namespaces
 - helpers should consume that registry instead of maintaining repeated hard-coded path allowlists
+
+<!-- RecallLoom metadata sync start: file-contract-registry-summary -->
+Generated from `references/contract-registry.json`.
+
+### `config`
+
+- path: `config.json`
+- required sections:
+  - none
+- optional sections:
+  - none
+- render order:
+  - none
+
+### `state`
+
+- path: `state.json`
+- required sections:
+  - none
+- optional sections:
+  - none
+- render order:
+  - none
+
+### `context_brief`
+
+- path: `context_brief.md`
+- required sections:
+  - `mission`
+  - `current_phase`
+  - `source_of_truth`
+  - `core_workflow`
+  - `boundaries`
+- optional sections:
+  - `audience_stakeholders`
+  - `scope`
+- render order:
+  - `mission`
+  - `audience_stakeholders`
+  - `current_phase`
+  - `scope`
+  - `source_of_truth`
+  - `core_workflow`
+  - `boundaries`
+
+### `rolling_summary`
+
+- path: `rolling_summary.md`
+- required sections:
+  - `current_state`
+  - `active_judgments`
+  - `risks_open_questions`
+  - `next_step`
+  - `recent_pivots`
+- optional sections:
+  - none
+- render order:
+  - `current_state`
+  - `active_judgments`
+  - `risks_open_questions`
+  - `next_step`
+  - `recent_pivots`
+
+### `daily_log`
+
+- path: `daily_logs/{date}.md`
+- required sections:
+  - `work_completed`
+  - `confirmed_facts`
+  - `key_decisions`
+  - `risks_blockers`
+  - `recommended_next_step`
+- optional sections:
+  - none
+- render order:
+  - `work_completed`
+  - `confirmed_facts`
+  - `key_decisions`
+  - `risks_blockers`
+  - `recommended_next_step`
+
+### `update_protocol`
+
+- path: `update_protocol.md`
+- required sections:
+  - `project_specific_overrides`
+- optional sections:
+  - none
+- render order:
+  - `project_specific_overrides`
+<!-- RecallLoom metadata sync end: file-contract-registry-summary -->
 
 Version consistency rule:
 
@@ -213,19 +304,19 @@ Role:
 
 - optional managed namespace for companion-layer assets
 
-Current `0.3.1` release-line purpose:
+Current `0.3.2` release-line purpose:
 
 - hold recovery proposals and related review records under the sidecar without creating a second root
 
 Contract rule:
 
 - this namespace is optional
-- its absence must not make a healthy `0.1.0` workspace invalid
+- its absence must not make a healthy `1.0` workspace invalid
 - files inside it must still be RecallLoom-managed assets, not arbitrary user files
 - allowed child directories and dynamic file patterns are declared by
   `recallloom/managed-assets.json`
 
-Current recognized subtree in this `0.3.1` release line:
+Current recognized subtree in this `0.3.2` release line:
 
 - `STORAGE_ROOT/companion/recovery/`
 
@@ -450,6 +541,6 @@ Operational rule:
 
 - cold-start flow should check this file before applying the default read order
 - write-planning flow should check this file before choosing the final write set
-- in the current `0.3.1` release line, `preflight_context_check.py`, `archive_logs.py`, and bridge guidance surface this file for review rather than automatically executing its natural-language rules
+- in the current `0.3.2` release line, `preflight_context_check.py`, `archive_logs.py`, and bridge guidance surface this file for review rather than automatically executing its natural-language rules
 - revision-aware write helpers (`commit_context_file.py`, `append_daily_log_entry.py`) do not reread or execute natural-language override prose automatically
 - revision-aware helper commits should keep this file's `file-state` marker and `state.json.update_protocol_revision` in sync

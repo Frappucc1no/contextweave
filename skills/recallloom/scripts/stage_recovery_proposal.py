@@ -9,6 +9,13 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from core.coldstart.structured import (
+    PROPOSAL_SECTION_ALIASES,
+    detect_promotion_targets,
+    detect_source_tiers,
+    extract_structured_sections,
+)
+
 from _common import (
     ConfigContractError,
     EnvironmentContractError,
@@ -150,6 +157,9 @@ def main() -> None:
         "filename_stamp": filename_stamp,
         "source_file": str(source_path),
         "source_digest": text_digest(body_text),
+        "proposal_sections_present": sorted(extract_structured_sections(body_text, PROPOSAL_SECTION_ALIASES).keys()),
+        "source_tiers_detected": detect_source_tiers(body_text),
+        "promotion_targets_detected": detect_promotion_targets(body_text),
         "staged_at": now_iso_timestamp(),
     }
     if args.json:

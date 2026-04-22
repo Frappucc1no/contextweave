@@ -9,10 +9,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+from core.protocol.contracts import ROOT_ENTRY_CANDIDATES
+
 from _common import (
     ConfigContractError,
     EnvironmentContractError,
-    ROOT_ENTRY_CANDIDATES,
     ensure_supported_python_version,
     exit_with_cli_error,
 )

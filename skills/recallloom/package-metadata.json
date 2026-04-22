@@ -1,7 +1,7 @@
 {
   "package_name": "recallloom",
   "display_name": "RecallLoom",
-  "package_version": "0.3.1",
+  "package_version": "0.3.2",
   "protocol_version": "1.0",
   "supported_protocol_versions": [
     "1.0"

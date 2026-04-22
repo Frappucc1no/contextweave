@@ -9,15 +9,25 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from core.continuity.freshness import (
+    is_effectively_empty_summary_next_step as shared_is_effectively_empty_summary_next_step,
+)
+
 from _common import (
     ConfigContractError,
+    DAILY_LOGS_DIRNAME,
     detect_update_protocol_time_policy_cues,
     EnvironmentContractError,
     ensure_supported_python_version,
     exit_with_cli_error,
+    extract_section_text,
     FILE_KEYS,
     find_recallloom_root,
+    invalid_iso_like_daily_log_files,
     latest_active_daily_log,
+    load_workspace_state,
+    parse_daily_log_entry_line,
+    parse_file_state_marker,
     parse_iso_date,
     read_text,
     StorageResolutionError,
@@ -117,41 +127,8 @@ def resolve_now(now_raw: str | None, timezone_name: str | None) -> tuple[datetim
     zone_label = timezone_name or str(now.tzinfo)
     return now, zone_label
 
-
-def extract_section_text(text: str, section_key: str) -> str:
-    lines = text.splitlines()
-    start_marker = f"<!-- section: {section_key} -->"
-    start_idx = None
-    for idx, line in enumerate(lines):
-        if line.strip() == start_marker:
-            start_idx = idx + 1
-            break
-    if start_idx is None:
-        return ""
-
-    collected: list[str] = []
-    for line in lines[start_idx:]:
-        if line.strip().startswith("<!-- section: "):
-            break
-        collected.append(line)
-    return "\n".join(collected).strip()
-
-
 def is_effectively_empty_summary_next_step(text: str) -> bool:
-    cleaned = []
-    for line in text.splitlines():
-        candidate = line.strip()
-        if not candidate:
-            continue
-        if candidate.startswith("#"):
-            continue
-        if candidate in {"-", "*"}:
-            continue
-        cleaned.append(candidate.lstrip("-* ").strip())
-    if not cleaned:
-        return True
-    lowered = " ".join(cleaned).strip().lower()
-    return lowered in {"none", "n/a", "na", "no next step"}
+    return shared_is_effectively_empty_summary_next_step(text)
 
 
 def detect_closure_signal(daily_log_text: str) -> tuple[bool, list[str]]:
@@ -200,22 +177,79 @@ def main() -> None:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
 
     try:
-        latest_daily_log = latest_active_daily_log(workspace.storage_root / "daily_logs")
+        logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
+        invalid_daily_logs = invalid_iso_like_daily_log_files(logs_dir)
+        if invalid_daily_logs:
+            exit_with_cli_error(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=(
+                    "Refusing recommend_workday because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
+                    + "\n".join(str(path) for path in invalid_daily_logs)
+                ),
+            )
+        load_workspace_state(workspace.storage_root / FILE_KEYS["state"])
+
+        latest_daily_log = latest_active_daily_log(logs_dir)
         latest_active_day = parse_iso_date(latest_daily_log.stem) if latest_daily_log is not None else None
         logical_workday = now.date() if now.hour >= args.rollover_hour else (now.date() - timedelta(days=1))
         update_protocol_path = workspace.storage_root / FILE_KEYS["update_protocol"]
-        update_protocol_text = read_text(update_protocol_path) if update_protocol_path.is_file() else ""
+        if not update_protocol_path.is_file():
+            exit_with_cli_error(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=f"Missing required file: {update_protocol_path}",
+            )
+        update_protocol_text = read_text(update_protocol_path)
+        if update_protocol_path.is_file() and parse_file_state_marker(update_protocol_text) is None:
+            exit_with_cli_error(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=f"Missing required file-state metadata marker: {update_protocol_path}",
+            )
         project_time_policy_cues = detect_update_protocol_time_policy_cues(update_protocol_text)
 
-        summary_path = workspace.storage_root / "rolling_summary.md"
-        summary_text = read_text(summary_path) if summary_path.is_file() else ""
+        summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
+        if not summary_path.is_file():
+            exit_with_cli_error(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=f"Missing required file: {summary_path}",
+            )
+        summary_text = read_text(summary_path)
+        if parse_file_state_marker(summary_text) is None:
+            exit_with_cli_error(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=f"Missing required file-state metadata marker: {summary_path}",
+            )
         next_step_text = extract_section_text(summary_text, "next_step")
         next_step_empty = is_effectively_empty_summary_next_step(next_step_text)
 
         daily_log_text = read_text(latest_daily_log) if latest_daily_log is not None else ""
+        if latest_daily_log is not None and not any(
+            parse_daily_log_entry_line(line) is not None
+            for line in daily_log_text.splitlines()
+        ):
+            exit_with_cli_error(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=(
+                    "Missing required daily-log-entry metadata marker in the latest ISO-dated daily log: "
+                    f"{latest_daily_log}"
+                ),
+            )
         closure_detected, closure_keywords = detect_closure_signal(daily_log_text)
     except (OSError, UnicodeDecodeError) as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+    except ConfigContractError as exc:
+        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
 
     recommendation = "log_not_needed_for_this_session"
     suggested_date = logical_workday.isoformat()

@@ -10,6 +10,7 @@ import shutil
 
 from _common import (
     ConfigContractError,
+    DAILY_LOGS_DIRNAME,
     daily_log_entries,
     daily_log_sequence_error,
     EnvironmentContractError,
@@ -69,7 +70,7 @@ def main() -> None:
 
     try:
         with workspace_write_lock(workspace.project_root, "archive_logs.py"):
-            logs_dir = workspace.storage_root / "daily_logs"
+            logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
             archive_dir = logs_dir / "archive"
             update_protocol_path = workspace.storage_root / "update_protocol.md"
             state_path = workspace.storage_root / "state.json"

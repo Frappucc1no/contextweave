@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import shlex
+import sys
 
 from _common import (
     ConfigContractError,
@@ -50,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--dispatcher-command",
         help=(
             "Exact shell command prefix to invoke the RecallLoom dispatcher, "
-            'for example: python "/abs/path/to/recallloom.py"'
+            'for example: "/abs/path/to/python3" "/abs/path/to/recallloom.py"'
         ),
     )
     parser.add_argument(
@@ -75,6 +77,15 @@ def project_root(path_raw: str) -> Path:
     return Path(path_raw).expanduser().resolve()
 
 
+def current_python_command() -> str:
+    candidate = Path(sys.executable).expanduser()
+    try:
+        resolved = candidate.resolve()
+    except OSError:
+        resolved = candidate
+    return f'"{resolved}"'
+
+
 def host_command_dir(host: str, *, scope: str, project: Path) -> Path:
     if host == "claude-code":
         return (project / ".claude" / "commands") if scope == "project" else (Path.home() / ".claude" / "commands")
@@ -85,7 +96,8 @@ def host_command_dir(host: str, *, scope: str, project: Path) -> Path:
     raise AssertionError(f"Unsupported host: {host}")
 
 
-def detect_dispatcher_command(project: Path) -> str:
+def detect_dispatcher_command(project: Path, *, scope: str) -> str:
+    python_command = current_python_command()
     candidates = [
         project / "skills" / "recallloom" / "scripts" / "recallloom.py",
         project / ".claude" / "skills" / "recallloom" / "scripts" / "recallloom.py",
@@ -94,13 +106,50 @@ def detect_dispatcher_command(project: Path) -> str:
     ]
     for candidate in candidates:
         if candidate.is_file():
-            try:
-                rel = candidate.relative_to(project)
-                return f'python "{rel.as_posix()}"'
-            except ValueError:
-                return f'python "{candidate}"'
+            if scope == "project":
+                try:
+                    rel = candidate.relative_to(project)
+                    return f'{python_command} "{rel.as_posix()}"'
+                except ValueError:
+                    return f'{python_command} "{candidate}"'
+            return f'{python_command} "{candidate}"'
     raise ConfigContractError(
         "Could not auto-detect a RecallLoom dispatcher path. Re-run with --dispatcher-command."
+    )
+
+
+def classify_project_scope_dispatcher_path(dispatcher_command: str, project: Path) -> tuple[str, str | None]:
+    try:
+        tokens = shlex.split(dispatcher_command)
+    except ValueError:
+        return ("unknown", None)
+    if not tokens:
+        return ("unknown", None)
+
+    script_token = next((token for token in reversed(tokens) if token.endswith("recallloom.py")), None)
+    if script_token is None:
+        return ("unknown", None)
+
+    candidate = Path(script_token).expanduser()
+    if not candidate.is_absolute():
+        return ("relative_project_dispatcher", None)
+
+    try:
+        resolved = candidate.resolve()
+        project_resolved = project.resolve()
+    except OSError:
+        resolved = candidate
+        project_resolved = project
+    try:
+        resolved.relative_to(project_resolved)
+    except ValueError:
+        return (
+            "absolute_external_dispatcher",
+            "project scope only stays naturally portable when the dispatcher lives inside the project; the current dispatcher command uses an absolute path outside the project.",
+        )
+    return (
+        "absolute_project_dispatcher",
+        "project scope is installed in-project, but the generated dispatcher command still uses an absolute path and will drift if the project moves.",
     )
 
 
@@ -180,7 +229,7 @@ def main() -> None:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Target path does not exist: {project}")
 
     try:
-        dispatcher_command = args.dispatcher_command or detect_dispatcher_command(project)
+        dispatcher_command = args.dispatcher_command or detect_dispatcher_command(project, scope=args.scope)
     except ConfigContractError as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
 
@@ -201,10 +250,26 @@ def main() -> None:
     except ConfigContractError as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
 
+    project_scope_path_stability = "not_applicable"
+    project_scope_path_advisory = None
+    if args.scope == "project":
+        project_scope_path_stability, project_scope_path_advisory = classify_project_scope_dispatcher_path(
+            dispatcher_command,
+            project,
+        )
+
     payload = {
         "ok": True,
         "project_root": str(project),
         "scope": args.scope,
+        "recommended_scope": "project",
+        "scope_advisory": (
+            "project scope is the recommended public default; user scope remains supported but is intentionally downgraded because it depends on a stable absolute dispatcher path and is easier to drift."
+            if args.scope == "user"
+            else "project scope is the recommended public default."
+        ),
+        "project_scope_path_stability": project_scope_path_stability,
+        "project_scope_path_advisory": project_scope_path_advisory,
         "applied": bool(args.yes),
         "generated_at": now_iso_timestamp(),
         "host_results": host_results,
@@ -219,6 +284,10 @@ def main() -> None:
     else:
         action = "Installed" if args.yes else "Previewed"
         print(f"{action} native RecallLoom command wrappers for scope={args.scope}")
+        if args.scope == "user":
+            print("Advisory: project scope remains the recommended public default; user scope is supported but downgraded.")
+        elif project_scope_path_advisory is not None:
+            print(f"Advisory: {project_scope_path_advisory}")
         for host_payload in host_results:
             print(f"- {host_payload['host']}: {host_payload['destination_dir']}")
             for result in host_payload["results"]:

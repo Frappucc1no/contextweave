@@ -7,30 +7,33 @@ import argparse
 import json
 from pathlib import Path
 
-from _common import (
+from core.bridge.blocks import (
     bridge_block_integrity,
+    detect_root_entry_files,
+    remove_bridge_block,
+    render_bridge_block,
+    replace_or_insert_bridge,
+)
+from core.protocol.contracts import FILE_KEYS, ROOT_ENTRY_CANDIDATES
+from core.safety.attached_text import scan_auto_attached_context_text
+
+from _common import (
     ConfigContractError,
+    DAILY_LOGS_DIRNAME,
     EnvironmentContractError,
     exit_with_cli_error,
     atomic_write_if_unchanged,
     LockBusyError,
     load_workspace_state,
     dump_json,
-    FILE_KEYS,
     latest_active_daily_log,
     managed_file_contract_issue,
     now_iso_timestamp,
-    ROOT_ENTRY_CANDIDATES,
     restore_text_snapshot,
     StorageResolutionError,
-    detect_root_entry_files,
     ensure_supported_python_version,
     find_recallloom_root,
     read_text,
-    remove_bridge_block,
-    render_bridge_block,
-    replace_or_insert_bridge,
-    scan_auto_attached_context_text,
     workspace_write_lock,
 )
 
@@ -131,8 +134,8 @@ def missing_continuity_files(workspace) -> list[Path]:
         )
         if issue is not None:
             issues.append(path)
-    if not (workspace.storage_root / "daily_logs").is_dir():
-        issues.append(workspace.storage_root / "daily_logs")
+    if not (workspace.storage_root / DAILY_LOGS_DIRNAME).is_dir():
+        issues.append(workspace.storage_root / DAILY_LOGS_DIRNAME)
     return issues
 
 
@@ -246,7 +249,7 @@ def main() -> None:
                         state["bridged_entries"].pop(rel_target, None)
                         state_changed = True
                 else:
-                    latest_daily_log = latest_active_daily_log(workspace.storage_root / "daily_logs")
+                    latest_daily_log = latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME)
                     next_bridge_state = {
                         "update_protocol_revision_seen": state["update_protocol_revision"],
                         "latest_daily_log_seen": (

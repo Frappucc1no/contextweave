@@ -7,34 +7,39 @@ import argparse
 import json
 from pathlib import Path
 
+from core.protocol.contracts import FILE_KEYS, SECTION_KEYS
+from core.protocol.markers import (
+    daily_log_entry_marker,
+    file_marker,
+    parse_daily_log_scaffold_marker,
+    parse_file_marker,
+)
+from core.protocol.sections import (
+    duplicate_section_keys,
+    missing_section_keys,
+    unknown_section_keys,
+)
+
 from _common import (
     atomic_write_if_unchanged,
     ConfigContractError,
     DAILY_LOG_ENTRY_RE,
+    DAILY_LOGS_DIRNAME,
     DISPLAY_NAME,
     EnvironmentContractError,
-    FILE_KEYS,
     LockBusyError,
     StorageResolutionError,
-    daily_log_entry_marker,
     dump_json,
     ensure_supported_python_version,
     exit_with_cli_error,
-    file_marker,
     find_recallloom_root,
     latest_active_daily_log,
     load_workspace_state,
-    missing_section_keys,
     now_iso_timestamp,
-    duplicate_section_keys,
     parse_daily_log_entry_line,
-    parse_daily_log_scaffold_marker,
     parse_iso_date,
-    parse_file_marker,
     read_text,
     restore_text_snapshot,
-    SECTION_KEYS,
-    unknown_section_keys,
     validate_iso_date,
     validate_writer_id,
     workspace_write_lock,
@@ -108,7 +113,7 @@ def main() -> None:
     if workspace is None:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
 
-    target_path = workspace.storage_root / "daily_logs" / f"{args.date}.md"
+    target_path = workspace.storage_root / DAILY_LOGS_DIRNAME / f"{args.date}.md"
     try:
         with workspace_write_lock(workspace.project_root, "append_daily_log_entry.py"):
             state_path = workspace.storage_root / FILE_KEYS["state"]
@@ -124,7 +129,7 @@ def main() -> None:
                     ),
                 )
 
-            logs_dir = workspace.storage_root / "daily_logs"
+            logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
             latest_existing = latest_active_daily_log(logs_dir)
             target_date = parse_iso_date(args.date)
             latest_existing_date = parse_iso_date(latest_existing.stem) if latest_existing is not None else None

@@ -1,0 +1,279 @@
+{
+  "registry_version": 1,
+  "protocol": {
+    "current": "1.0",
+    "supported": [
+      "1.0"
+    ]
+  },
+  "workspace": {
+    "languages": [
+      "en",
+      "zh-CN"
+    ],
+    "storage_modes": [
+      "hidden",
+      "visible"
+    ],
+    "bridge_targets": [
+      "AGENTS.md",
+      "CLAUDE.md",
+      "GEMINI.md",
+      ".github/copilot-instructions.md"
+    ]
+  },
+  "files": {
+    "config": {
+      "path": "config.json",
+      "required_sections": [],
+      "optional_sections": [],
+      "render_order": [],
+      "labels": {}
+    },
+    "state": {
+      "path": "state.json",
+      "required_sections": [],
+      "optional_sections": [],
+      "render_order": [],
+      "labels": {}
+    },
+    "context_brief": {
+      "path": "context_brief.md",
+      "required_sections": [
+        "mission",
+        "current_phase",
+        "source_of_truth",
+        "core_workflow",
+        "boundaries"
+      ],
+      "optional_sections": [
+        "audience_stakeholders",
+        "scope"
+      ],
+      "render_order": [
+        "mission",
+        "audience_stakeholders",
+        "current_phase",
+        "scope",
+        "source_of_truth",
+        "core_workflow",
+        "boundaries"
+      ],
+      "labels": {
+        "en": {
+          "mission": "Mission",
+          "audience_stakeholders": "Audience / Stakeholders",
+          "current_phase": "Current Phase",
+          "scope": "Scope",
+          "source_of_truth": "Source of Truth",
+          "core_workflow": "Core Workflow",
+          "boundaries": "Boundaries"
+        },
+        "zh-CN": {
+          "mission": "项目使命",
+          "audience_stakeholders": "受众与相关方",
+          "current_phase": "当前阶段",
+          "scope": "范围",
+          "source_of_truth": "事实来源",
+          "core_workflow": "核心工作流",
+          "boundaries": "边界与约束"
+        }
+      }
+    },
+    "rolling_summary": {
+      "path": "rolling_summary.md",
+      "required_sections": [
+        "current_state",
+        "active_judgments",
+        "risks_open_questions",
+        "next_step",
+        "recent_pivots"
+      ],
+      "optional_sections": [],
+      "render_order": [
+        "current_state",
+        "active_judgments",
+        "risks_open_questions",
+        "next_step",
+        "recent_pivots"
+      ],
+      "labels": {
+        "en": {
+          "current_state": "Current State",
+          "active_judgments": "Active Judgments",
+          "risks_open_questions": "Risks / Open Questions",
+          "next_step": "Next Step",
+          "recent_pivots": "Recent Pivots"
+        },
+        "zh-CN": {
+          "current_state": "当前状态",
+          "active_judgments": "当前判断",
+          "risks_open_questions": "风险与未决问题",
+          "next_step": "下一步",
+          "recent_pivots": "近期判断反转"
+        }
+      }
+    },
+    "daily_log": {
+      "path_pattern": "daily_logs/{date}.md",
+      "required_sections": [
+        "work_completed",
+        "confirmed_facts",
+        "key_decisions",
+        "risks_blockers",
+        "recommended_next_step"
+      ],
+      "optional_sections": [],
+      "render_order": [
+        "work_completed",
+        "confirmed_facts",
+        "key_decisions",
+        "risks_blockers",
+        "recommended_next_step"
+      ],
+      "labels": {
+        "en": {
+          "work_completed": "Work Completed",
+          "confirmed_facts": "Confirmed Facts",
+          "key_decisions": "Key Decisions",
+          "risks_blockers": "Risks / Blockers",
+          "recommended_next_step": "Recommended Next Step"
+        },
+        "zh-CN": {
+          "work_completed": "完成工作",
+          "confirmed_facts": "确认事实",
+          "key_decisions": "关键决策",
+          "risks_blockers": "风险与阻塞",
+          "recommended_next_step": "建议下一步"
+        }
+      }
+    },
+    "update_protocol": {
+      "path": "update_protocol.md",
+      "required_sections": [
+        "project_specific_overrides"
+      ],
+      "optional_sections": [],
+      "render_order": [
+        "project_specific_overrides"
+      ],
+      "labels": {
+        "en": {
+          "title": "Project-Specific Overrides",
+          "body": [
+            "Use this file to define project-local overrides for:",
+            "",
+            "- read order",
+            "- write rules",
+            "- archive rules",
+            "- evidence priority",
+            "- stronger project constraints"
+          ]
+        },
+        "zh-CN": {
+          "title": "项目级覆盖规则",
+          "body": [
+            "使用此文件定义项目级覆盖规则：",
+            "",
+            "- 读取顺序",
+            "- 写入规则",
+            "- 归档规则",
+            "- 证据优先级",
+            "- 更强的项目约束"
+          ]
+        }
+      }
+    }
+  },
+  "markers": {
+    "file": {
+      "template": "<!-- recallloom:file={file_key} version={version} lang={lang} -->",
+      "regex": "^<!-- recallloom:file=(?P<file_key>[a-z_]+) version=(?P<version>[0-9]+\\.[0-9]+(?:\\.[0-9]+)*) lang=(?P<lang>[^ ]+) -->$"
+    },
+    "file_state": {
+      "template": "<!-- file-state: revision={revision} | updated-at={updated_at} | writer-id={writer_id} | base-workspace-revision={base_workspace_revision} -->",
+      "regex": "^<!-- file-state: revision=(?P<revision>\\d+) \\| updated-at=(?P<updated_at>[^ ]+) \\| writer-id=(?P<writer_id>[^|]+?) \\| base-workspace-revision=(?P<base_workspace_revision>\\d+) -->$"
+    },
+    "daily_log_entry": {
+      "template": "<!-- daily-log-entry: entry-id={entry_id} | created-at={created_at} | writer-id={writer_id} | entry-seq={entry_seq} -->",
+      "regex": "^<!-- daily-log-entry: entry-id=(?P<entry_id>[^ ]+) \\| created-at=(?P<created_at>[^ ]+) \\| writer-id=(?P<writer_id>[^|]+?) \\| entry-seq=(?P<entry_seq>\\d+) -->$"
+    },
+    "daily_log_scaffold": {
+      "template": "<!-- daily-log-scaffold: true -->",
+      "regex": "^<!-- daily-log-scaffold: true -->$"
+    },
+    "last_writer": {
+      "template": "<!-- last-writer: [{tool}] | {date} -->",
+      "regex": "^<!-- last-writer: \\[(?P<tool>[^\\]]+)\\] \\| (?P<date>\\d{4}-\\d{2}-\\d{2}) -->$"
+    },
+    "bridge": {
+      "start": "<!-- RecallLoom managed bridge start -->",
+      "end": "<!-- RecallLoom managed bridge end -->"
+    },
+    "git_exclude": {
+      "start": "# RecallLoom managed block start",
+      "end": "# RecallLoom managed block end"
+    }
+  },
+  "dynamic_asset_rule_kinds": [
+    "iso_daily_log",
+    "recovery_proposal",
+    "review_record"
+  ],
+  "doc_sync_blocks": {
+    "package-metadata": {
+      "source_keys": [
+        "protocol.current",
+        "protocol.supported"
+      ],
+      "targets": [
+        "README.md",
+        "skills/recallloom/SKILL.md"
+      ]
+    },
+    "runtime-assumptions": {
+      "source_keys": [
+        "workspace.languages",
+        "workspace.bridge_targets"
+      ],
+      "targets": [
+        "README.md",
+        "skills/recallloom/SKILL.md"
+      ]
+    },
+    "runtime-requirements": {
+      "source_keys": [
+        "workspace.languages",
+        "workspace.bridge_targets"
+      ],
+      "targets": [
+        "USAGE.md"
+      ]
+    },
+    "protocol-registry-summary": {
+      "source_keys": [
+        "protocol.current",
+        "protocol.supported",
+        "workspace.languages",
+        "workspace.storage_modes",
+        "workspace.bridge_targets",
+        "files",
+        "markers",
+        "dynamic_asset_rule_kinds"
+      ],
+      "targets": [
+        "skills/recallloom/references/protocol.md"
+      ]
+    },
+    "file-contract-registry-summary": {
+      "source_keys": [
+        "files",
+        "markers",
+        "dynamic_asset_rule_kinds"
+      ],
+      "targets": [
+        "skills/recallloom/references/file-contracts.md"
+      ]
+    }
+  }
+}

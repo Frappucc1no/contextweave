@@ -7,34 +7,46 @@ import argparse
 import json
 from pathlib import Path
 
-from _common import (
-    bridge_block_integrity,
+from core.bridge.blocks import bridge_block_integrity
+from core.continuity.freshness import (
+    continuity_state_for_workspace as shared_continuity_state_for_workspace,
+    summary_matches_empty_shell_template as shared_summary_matches_empty_shell_template,
+)
+from core.protocol.contracts import (
     BRIDGE_START,
-    ConfigContractError,
-    DEFAULT_STORAGE_MODE,
     DEFAULT_WORKSPACE_LANGUAGE,
-    EnvironmentContractError,
-    exit_with_cli_error,
     FILE_KEYS,
-    LockBusyError,
+    ROOT_ENTRY_CANDIDATES,
     SUPPORTED_STORAGE_MODES,
     SUPPORTED_WORKSPACE_LANGUAGES,
+)
+from core.protocol.markers import parse_file_state_marker
+from core.protocol.sections import extract_section_text
+from core.protocol.templates import render_template
+
+from _common import (
+    ConfigContractError,
+    DAILY_LOGS_DIRNAME,
+    DEFAULT_STORAGE_MODE,
+    EnvironmentContractError,
+    exit_with_cli_error,
+    LockBusyError,
     VISIBLE_STORAGE_MODE,
     config_path_for_mode,
     config_payload,
     ensure_git_exclude_entry,
     ensure_supported_python_version,
     initial_workspace_state,
+    is_recovery_storage_candidate,
     latest_active_daily_log,
     load_and_validate_config,
     load_workspace_state,
     managed_file_contract_issue,
     now_iso_timestamp,
     read_text,
-    render_template,
     restore_text_snapshot,
-    ROOT_ENTRY_CANDIDATES,
     storage_root_for_mode,
+    storage_root_boundary_issue,
     today_iso,
     MANAGED_ASSET_REQUIRED_DIRECTORIES,
     MANAGED_ASSET_REQUIRED_FILES,
@@ -46,6 +58,22 @@ from _common import (
     workspace_write_lock,
     write_text,
 )
+
+def summary_matches_empty_shell_template(summary_text: str) -> bool:
+    return shared_summary_matches_empty_shell_template(summary_text)
+
+
+def continuity_state_for_workspace(
+    *,
+    state: dict,
+    summary_text: str,
+    latest_daily_log_exists: bool,
+) -> tuple[str, bool]:
+    return shared_continuity_state_for_workspace(
+        state=state,
+        summary_text=summary_text,
+        latest_daily_log_exists=latest_daily_log_exists,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -112,7 +140,7 @@ def write_if_needed(path: Path, text: str, force: bool, created: list[str], skip
 
 
 def bridge_state_snapshot(workspace, state: dict, timestamp: str) -> tuple[dict, bool]:
-    latest_daily_log = latest_active_daily_log(workspace.storage_root / "daily_logs")
+    latest_daily_log = latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME)
     next_entries: dict[str, dict] = {}
     changed = False
     for rel_path in ROOT_ENTRY_CANDIDATES:
@@ -156,9 +184,13 @@ def rollback_init_writes(file_snapshots: list[tuple[Path, bool, str]], created_d
 def existing_storage_issue(
     *,
     storage_root: Path,
+    project_root: Path,
     storage_mode: str,
     workspace_language: str,
 ) -> str | None:
+    boundary_issue = storage_root_boundary_issue(project_root, storage_root, storage_mode)
+    if boundary_issue is not None:
+        return boundary_issue
     if not storage_root.exists():
         return None
     if not storage_root.is_dir():
@@ -274,6 +306,45 @@ def existing_storage_issue(
     return None
 
 
+PROJECT_ROOT_SIGNAL_FILES = {
+    "README.md",
+    "README.zh-CN.md",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "package.json",
+    "pyproject.toml",
+    "Cargo.toml",
+    "go.mod",
+    "Makefile",
+    "requirements.txt",
+}
+
+PROJECT_ROOT_SIGNAL_DIRS = {
+    ".git",
+    ".github",
+    "docs",
+    "src",
+    "app",
+    "apps",
+}
+
+
+def looks_like_project_root(project_root: Path) -> bool:
+    if not any(project_root.iterdir()):
+        return True
+    for name in PROJECT_ROOT_SIGNAL_FILES:
+        if (project_root / name).exists():
+            return True
+    for name in PROJECT_ROOT_SIGNAL_DIRS:
+        if (project_root / name).exists():
+            return True
+    for storage_mode in (DEFAULT_STORAGE_MODE, VISIBLE_STORAGE_MODE):
+        if config_path_for_mode(project_root, storage_mode).is_file():
+            return True
+    return False
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -291,8 +362,35 @@ def main() -> None:
             payload={"project_root": str(Path(args.target).expanduser().resolve()), "initialized": False},
         )
 
-    project_root = Path(args.target).expanduser().resolve()
-    project_root.mkdir(parents=True, exist_ok=True)
+    target_path = Path(args.target).expanduser()
+    if not target_path.exists():
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=f"Target path does not exist: {target_path.resolve()}",
+            payload={"project_root": str(target_path.expanduser().resolve()), "initialized": False},
+        )
+    project_root = target_path.resolve()
+    if not project_root.is_dir():
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=f"Target path is not a directory: {project_root}",
+            payload={"project_root": str(project_root), "initialized": False},
+        )
+    if not looks_like_project_root(project_root):
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=(
+                "Target path does not look like a project root yet. "
+                "Create or point RecallLoom at an existing project directory with recognizable project signals first."
+            ),
+            payload={"project_root": str(project_root), "initialized": False},
+        )
 
     if not validate_iso_date(args.date):
         exit_with_cli_error(
@@ -321,6 +419,15 @@ def main() -> None:
             opposite_mode = VISIBLE_STORAGE_MODE if storage_mode == DEFAULT_STORAGE_MODE else DEFAULT_STORAGE_MODE
             opposite_root = storage_root_for_mode(project_root, opposite_mode)
             opposite_config = config_path_for_mode(project_root, opposite_mode)
+            opposite_boundary_issue = storage_root_boundary_issue(project_root, opposite_root, opposite_mode)
+            if opposite_boundary_issue is not None:
+                exit_with_cli_error(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=opposite_boundary_issue,
+                    payload={"project_root": str(project_root), "initialized": False},
+                )
             if opposite_config.exists():
                 exit_with_cli_error(
                     parser,
@@ -344,19 +451,28 @@ def main() -> None:
                         ),
                         payload={"project_root": str(project_root), "initialized": False},
                     )
-                if any(opposite_root.iterdir()):
+                if is_recovery_storage_candidate(project_root, opposite_root, opposite_mode):
                     exit_with_cli_error(
                         parser,
                         json_mode=args.json,
                         exit_code=2,
                         message=(
-                            "A non-empty storage root already exists for the opposite storage mode. "
-                            "This looks like a conflicting or partial sidecar. Remove it before initializing this project."
+                            "A sidecar-like storage root already exists for the opposite storage mode. "
+                            "This looks like a conflicting or partial RecallLoom sidecar. Remove or repair it before initializing this project."
                         ),
                         payload={"project_root": str(project_root), "initialized": False},
                     )
 
             storage_root = storage_root_for_mode(project_root, storage_mode)
+            boundary_issue = storage_root_boundary_issue(project_root, storage_root, storage_mode)
+            if boundary_issue is not None:
+                exit_with_cli_error(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=boundary_issue,
+                    payload={"project_root": str(project_root), "initialized": False},
+                )
             if storage_root.exists() and not storage_root.is_dir():
                 exit_with_cli_error(
                     parser,
@@ -369,6 +485,7 @@ def main() -> None:
                 )
             issue = existing_storage_issue(
                 storage_root=storage_root,
+                project_root=project_root,
                 storage_mode=storage_mode,
                 workspace_language=workspace_language,
             )
@@ -385,7 +502,15 @@ def main() -> None:
             if existing_valid_storage:
                 state_path = storage_root / FILE_KEYS["state"]
                 state = load_workspace_state(state_path)
-                requested_daily_log = storage_root / "daily_logs" / f"{args.date}.md"
+                summary_path = storage_root / FILE_KEYS["rolling_summary"]
+                summary_text = read_text(summary_path)
+                summary_state = parse_file_state_marker(summary_text)
+                continuity_state, continuity_seeded = continuity_state_for_workspace(
+                    state=state,
+                    summary_text=summary_text,
+                    latest_daily_log_exists=latest_active_daily_log(storage_root / DAILY_LOGS_DIRNAME) is not None,
+                )
+                requested_daily_log = storage_root / DAILY_LOGS_DIRNAME / f"{args.date}.md"
                 if args.create_daily_log and not requested_daily_log.exists():
                     exit_with_cli_error(
                         parser,
@@ -399,10 +524,12 @@ def main() -> None:
                     )
 
                 git_exclude_updated = False
+                state_dirty = False
                 if storage_mode == DEFAULT_STORAGE_MODE and not args.skip_git_exclude:
                     git_exclude_updated = ensure_git_exclude_entry(project_root)
                     if git_exclude_updated and state.get("git_exclude_mode") != "managed":
                         state["git_exclude_mode"] = "managed"
+                        state_dirty = True
 
                 state, state_reconciled = bridge_state_snapshot(
                     workspace=type(
@@ -418,7 +545,7 @@ def main() -> None:
                     timestamp=now_iso_timestamp(),
                 )
                 created: list[str] = []
-                if state_reconciled:
+                if state_reconciled or state_dirty:
                     write_text(state_path, json.dumps(state, ensure_ascii=False, indent=2) + "\n")
                     created.append(str(state_path))
 
@@ -448,6 +575,8 @@ def main() -> None:
                     "git_exclude_updated": git_exclude_updated,
                     "already_initialized": True,
                     "state_reconciled": state_reconciled,
+                    "continuity_state": continuity_state,
+                    "continuity_seeded": continuity_seeded,
                 }
                 if args.json:
                     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -456,6 +585,7 @@ def main() -> None:
                     print(f"Storage mode: {storage_mode}")
                     print(f"Workspace language: {workspace_language}")
                     print(f"Storage root: {storage_root}")
+                    print(f"Continuity state: {continuity_state}")
                     if skipped:
                         print("Skipped existing:")
                         for item in skipped:
@@ -469,7 +599,7 @@ def main() -> None:
             required_directory_paths = [
                 storage_root / rel_path for rel_path in MANAGED_ASSET_REQUIRED_DIRECTORIES
             ]
-            daily_logs_dir = storage_root / "daily_logs"
+            daily_logs_dir = storage_root / DAILY_LOGS_DIRNAME
             preexisting_dirs = {path: path.exists() for path in required_directory_paths}
             for directory in sorted(required_directory_paths, key=lambda item: len(item.parts)):
                 directory.mkdir(parents=True, exist_ok=True)
@@ -610,6 +740,13 @@ def main() -> None:
                 file_snapshots.append((state_path, existed, previous_text))
                 created.append(str(state_path))
 
+            rendered_summary_text = managed_files[storage_root / FILE_KEYS["rolling_summary"]]
+            rendered_summary_state = parse_file_state_marker(rendered_summary_text)
+            continuity_state, continuity_seeded = continuity_state_for_workspace(
+                state=state_payload,
+                summary_text=rendered_summary_text,
+                latest_daily_log_exists=False,
+            )
             summary = {
                 "project_root": str(project_root),
                 "storage_root": str(storage_root),
@@ -621,6 +758,8 @@ def main() -> None:
                 "config_created": config_created,
                 "git_exclude_updated": git_exclude_updated,
                 "state_reconciled": state_reconciled,
+                "continuity_state": continuity_state,
+                "continuity_seeded": continuity_seeded,
             }
     except LockBusyError as exc:
         exit_with_cli_error(
@@ -672,6 +811,7 @@ def main() -> None:
         print(f"Storage mode: {storage_mode}")
         print(f"Workspace language: {workspace_language}")
         print(f"Storage root: {storage_root}")
+        print(f"Continuity state: {summary['continuity_state']}")
         if created:
             print("Created:")
             for item in created:

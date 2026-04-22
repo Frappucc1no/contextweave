@@ -134,7 +134,7 @@ Do not place unrelated project files inside:
 - `PROJECT_ROOT/.recallloom/`
 - `PROJECT_ROOT/recallloom/`
 
-For the current `0.3.1` release line on protocol `1.0`, the package-level declaration source for managed storage-root assets is:
+For the current `0.3.2` release line on protocol `1.0`, the package-level declaration source for managed storage-root assets is:
 
 - `recallloom/managed-assets.json`
 
@@ -153,7 +153,7 @@ Protocol `1.0` continues to center on the core managed assets:
 - `daily_logs/`
 - `update_protocol.md`
 
-For the current `0.3.1` release line, one additional optional managed namespace is recognized:
+For the current `0.3.2` release line, one additional optional managed namespace is recognized:
 
 - `STORAGE_ROOT/companion/`
 
@@ -171,7 +171,7 @@ This namespace is not:
 
 When a workspace has not enabled companion-backed features, the absence of `STORAGE_ROOT/companion/` must not be treated as damage or incompleteness.
 
-Current recognized subtree in this `0.3.1` release line:
+Current recognized subtree in this `0.3.2` release line:
 
 - `STORAGE_ROOT/companion/recovery/`
 
@@ -271,7 +271,7 @@ The protocol therefore prefers:
 - append-only milestone logs
 - explicit reconciliation when other writers may exist
 
-For packaged helper writes in the current `0.3.1` release line, RecallLoom also uses:
+For packaged helper writes in the current `0.3.2` release line, RecallLoom also uses:
 
 - project-scoped write locking
 - revision-aware commits for overwrite-style files
@@ -310,6 +310,28 @@ This is how the package stays lightweight while still being structured.
 RecallLoom uses a machine-readable contract layer for managed workspace files.
 
 This contract is normative for protocol `1.0`.
+
+<!-- RecallLoom metadata sync start: protocol-registry-summary -->
+- current protocol version:
+  - `1.0`
+- supported protocol versions:
+  - `1.0`
+- supported `workspace_language` values:
+  - `en`
+  - `zh-CN`
+- allowed `storage_mode` values:
+  - `hidden`
+  - `visible`
+- supported root entry files for thin bridges:
+  - `AGENTS.md`
+  - `CLAUDE.md`
+  - `GEMINI.md`
+  - `.github/copilot-instructions.md`
+- supported dynamic asset rule kinds:
+  - `iso_daily_log`
+  - `recovery_proposal`
+  - `review_record`
+<!-- RecallLoom metadata sync end: protocol-registry-summary -->
 
 ### File markers
 
@@ -492,7 +514,7 @@ RecallLoom also uses managed block boundaries for two integration surfaces:
 
 ### Supported root entry files for thin bridges
 
-Current supported root entry files for the current `0.3.1` release line:
+Current supported root entry files for the current `0.3.2` release line:
 
 - `AGENTS.md`
 - `CLAUDE.md`

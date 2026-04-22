@@ -8,18 +8,26 @@ from datetime import datetime, timedelta
 import json
 from pathlib import Path
 
-from _common import (
+from core.continuity.freshness import (
+    continuity_state_for_workspace as shared_continuity_state_for_workspace,
     continuity_digest_bundle,
-    ConfigContractError,
-    EnvironmentContractError,
     evaluate_continuity_freshness,
+    freshness_risk_summary,
+    summary_matches_empty_shell_template as shared_summary_matches_empty_shell_template,
+)
+from core.protocol.contracts import FILE_KEYS
+from core.protocol.markers import parse_file_state_marker
+from core.protocol.sections import extract_section_text
+
+from _common import (
+    ConfigContractError,
+    DAILY_LOGS_DIRNAME,
+    EnvironmentContractError,
     exit_with_cli_error,
-    FILE_KEYS,
     ensure_supported_python_version,
     invalid_iso_like_daily_log_files,
     load_workspace_state,
     parse_daily_log_entry_line,
-    parse_file_state_marker,
     read_text,
     StorageResolutionError,
     find_recallloom_root,
@@ -28,6 +36,22 @@ from _common import (
 )
 
 DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR = 3
+
+def summary_matches_empty_shell_template(summary_text: str) -> bool:
+    return shared_summary_matches_empty_shell_template(summary_text)
+
+
+def continuity_state_for_workspace(
+    *,
+    state: dict,
+    summary_text: str,
+    latest_daily_log_exists: bool,
+) -> tuple[str, bool]:
+    return shared_continuity_state_for_workspace(
+        state=state,
+        summary_text=summary_text,
+        latest_daily_log_exists=latest_daily_log_exists,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -63,13 +87,16 @@ def build_parser() -> argparse.ArgumentParser:
 def recommended_actions_for_preflight(
     *,
     continuity_confidence: str,
+    continuity_state: str,
     update_protocol_exists: bool,
     context_brief_exists: bool,
     latest_daily_log_exists: bool,
     workspace_is_newer: bool,
 ) -> list[str]:
     actions: list[str] = []
-    if workspace_is_newer:
+    if continuity_state == "initialized_empty_shell":
+        actions.append("seed_initial_continuity")
+    elif workspace_is_newer:
         actions.append("update_rolling_summary")
     else:
         actions.append("resume_from_summary")
@@ -79,8 +106,12 @@ def recommended_actions_for_preflight(
         actions.append("review_context_brief")
     if latest_daily_log_exists:
         actions.append("review_latest_daily_log")
-    if continuity_confidence == "medium" and "update_rolling_summary" not in actions:
-        actions.append("update_rolling_summary")
+    if (
+        continuity_state != "initialized_empty_shell"
+        and continuity_confidence == "medium"
+        and "update_rolling_summary" not in actions
+    ):
+        actions.append("consider_refresh_summary")
     return actions
 
 
@@ -110,7 +141,7 @@ def main() -> None:
         context_brief_path = workspace.storage_root / FILE_KEYS["context_brief"]
         state_path = workspace.storage_root / FILE_KEYS["state"]
         update_protocol_path = workspace.storage_root / FILE_KEYS["update_protocol"]
-        logs_dir = workspace.storage_root / "daily_logs"
+        logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
         if not summary_path.is_file():
             exit_with_cli_error(
                 parser,
@@ -201,6 +232,18 @@ def main() -> None:
             summary_text=summary_text,
             latest_daily_log_text=latest_daily_log_text,
         )
+        continuity_state, continuity_seeded = continuity_state_for_workspace(
+            state=state,
+            summary_text=summary_text,
+            latest_daily_log_exists=latest_daily_log is not None,
+        )
+        if continuity_state == "initialized_empty_shell":
+            digests = {
+                "active_task_digest": None,
+                "blocked_digest": None,
+                "latest_relevant_log_digest": None,
+                "suggested_handoff_sections": [],
+            }
         latest_workspace_artifact = freshness["latest_workspace_artifact"]
         workspace_artifact_scan_performed = freshness["workspace_artifact_scan_performed"]
         workspace_artifact_is_newer = freshness["workspace_artifact_newer_than_summary"]
@@ -208,8 +251,16 @@ def main() -> None:
         workspace_is_newer = freshness["workspace_newer_than_summary"]
         summary_stale = freshness["summary_stale"]
         continuity_confidence = freshness["continuity_confidence"]
+        freshness_risk = freshness_risk_summary(
+            workspace_artifact_scan_mode=freshness["workspace_artifact_scan_mode"],
+            workspace_artifact_scan_performed=freshness["workspace_artifact_scan_performed"],
+            workspace_artifact_newer_than_summary=freshness["workspace_artifact_newer_than_summary"],
+            summary_revision_stale=freshness["summary_revision_stale"],
+            continuity_confidence=continuity_confidence,
+        )
         recommended_actions = recommended_actions_for_preflight(
             continuity_confidence=continuity_confidence,
+            continuity_state=continuity_state,
             update_protocol_exists=update_protocol_path.is_file(),
             context_brief_exists=context_brief_path.is_file(),
             latest_daily_log_exists=latest_daily_log is not None,
@@ -283,6 +334,10 @@ def main() -> None:
         "summary_stale": summary_stale,
         "workspace_newer_than_summary": workspace_is_newer,
         "continuity_confidence": continuity_confidence,
+        "freshness_risk_level": freshness_risk["level"],
+        "freshness_risk_note": freshness_risk["note"],
+        "continuity_state": continuity_state,
+        "continuity_seeded": continuity_seeded,
         "active_task_digest": digests["active_task_digest"],
         "blocked_digest": digests["blocked_digest"],
         "latest_relevant_log_digest": digests["latest_relevant_log_digest"],
@@ -301,6 +356,8 @@ def main() -> None:
             ),
             "logical_workday_seen": current_logical_workday_iso(),
             "continuity_confidence": continuity_confidence,
+            "continuity_state": continuity_state,
+            "continuity_seeded": continuity_seeded,
             "task_type": "preflight_review",
         },
         "suggested_read_set": suggested_read_set,
@@ -372,6 +429,9 @@ def main() -> None:
             f"{'yes' if summary_revision_is_stale else 'no'}"
         )
         print(f"Continuity confidence: {continuity_confidence}")
+        if freshness_risk["note"]:
+            print(f"Freshness risk: {freshness_risk['level']} - {freshness_risk['note']}")
+        print(f"Continuity state: {continuity_state}")
         print(f"Workspace newer than summary: {'yes' if workspace_is_newer else 'no'}")
         if recommended_actions:
             print("Recommended actions:")

@@ -28,6 +28,29 @@ For package inventory, protocol details, and helper-script behavior, rely on the
 - `references/operation-playbooks.md`
 - `references/protocol.md`
 
+## Package Facts
+
+<!-- RecallLoom metadata sync start: package-metadata -->
+- package version: `0.3.2`
+- protocol version: `1.0`
+- supported protocol versions:
+  - `1.0`
+<!-- RecallLoom metadata sync end: package-metadata -->
+
+## Runtime Assumptions
+
+<!-- RecallLoom metadata sync start: runtime-assumptions -->
+- Python 3.10 or newer
+- supported workspace languages:
+  - `en`
+  - `zh-CN`
+- supported bridge targets:
+  - `AGENTS.md`
+  - `CLAUDE.md`
+  - `GEMINI.md`
+  - `.github/copilot-instructions.md`
+<!-- RecallLoom metadata sync end: runtime-assumptions -->
+
 ## When To Use It
 
 Use RecallLoom when you need to:
@@ -78,6 +101,22 @@ For the current package line, the stable action names are:
 
 `rl-init` is the primary first-attach action.
 The others are operator-facing stable action names that can be interpreted by the host agent or mapped into native custom commands when the host supports that surface.
+
+## Public Interaction Rules
+
+RecallLoom should default to user task language, not implementation language.
+
+- Prefer “initialize”, “restore”, “import existing project reality”, “continue”, and “record progress”.
+- Do not lead with helper names, section keys, or the internal `coldstart` label unless the user is explicitly doing operator/debug work.
+- Keep the first response result-first and action-light: one clear next move is better than exposing internal flow.
+
+## Fast And Deep Paths
+
+RecallLoom should treat fast path as the default interaction mode.
+
+- Fast path: smallest trustworthy source set, shortest interaction, lowest interruption cost.
+- Deep path: only when sources conflict, source coverage is insufficient, risk is too high for a direct recommendation, or the user explicitly asks for deeper review.
+- Host-memory inputs remain opt-in and hint-only; their presence should bias the agent toward explicit review instead of silent promotion.
 
 ## Core File Model
 
@@ -134,7 +173,7 @@ See `references/operation-playbooks.md` for the full flow.
 
 ## Current Read-Side Helpers
 
-The current `0.3.1` line now has three read-side helper directions worth knowing:
+The current `0.3.2` line now has three read-side helper directions worth knowing:
 
 - `preflight_context_check.py`
   - revision-aware freshness review before formal writes
@@ -144,10 +183,13 @@ The current `0.3.1` line now has three read-side helper directions worth knowing
   - returns the same handoff-first digest family for quick orientation
 - `query_continuity.py`
   - read-only continuity recall surface
-  - returns hits, citations, synthesized recall, token estimate, budget hint, freshness/conflict state, an output variant label, and override review targets
+  - returns answer-first recall with `answer`, supporting citations, and a risk/freshness note
+  - also returns hits, token estimate, budget hint, freshness/conflict state, an output variant label, and override review targets
   - daily-log citations include explicit `date` values
   - prefers current-state files over historical daily logs when match strength ties
+  - defaults to the quick freshness path, but can explicitly upgrade to a fuller freshness scan when needed
   - can explicitly surface freshness conflicts when the workspace has moved beyond the current summary
+  - explicitly surfaces freshness risk via `freshness_risk_level` and `freshness_risk_note`
   - surfaces `update_protocol.md` as a review target before recall should drive write decisions
   - keeps `supporting_context_window` bounded instead of expanding every matching excerpt
 
