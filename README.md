@@ -14,9 +14,9 @@
 
 </div>
 
-If every time you switch to a new `Claude Code`, `Codex`, `Gemini CLI`, or fresh agent you spend ten minutes re-explaining the project, what is missing is not a smarter model. It is a continuity layer that does not disappear.
+If every time you switch to a new `Claude Code`, `Codex`, `Gemini CLI`, or fresh agent you spend ten minutes re-explaining the project, what is usually missing is not a smarter model. It is a layer of project continuity that does not disappear.
 
-RecallLoom keeps the project's why, what is true now, recent progress, and next move with the project itself instead of locking them inside one platform's private memory. It is not another dashboard, not a platform-bound memory silo, and not a silent full-repo understanding engine. It adds a stable layer of project truth so the next session can pick up where the last one left off.
+RecallLoom keeps the project's why, what is true now, recent progress, and next move with the project itself instead of locking them inside one platform's private memory. It is not another dashboard, not a platform-bound memory silo, and not a black box that silently understands the whole repo for you. Its job is narrower: keep the project reality worth carrying forward inside the workspace so the next session can pick up where the last one left off.
 
 **Quick links:** [What problem it solves](#what-problem-it-solves) · [Who it fits best](#who-it-fits-best) · [Quick start](#quick-start) · [Built-in work modes](#built-in-work-modes) · [FAQ](#faq)
 
@@ -100,7 +100,7 @@ That is why it stays useful without becoming heavy.
 - **It does not pretend to understand the whole repo from zero**: it focuses on restoring project background, current state, key progress, and boundaries instead of acting like a universal repository reader.
 - **It defaults to the shortest trustworthy path**: reconnect the most important project reality first; only move to a heavier path when sources conflict, material is thin, risk is higher, or the user explicitly asks for a deeper review.
 - **Host memory is not a default source of truth**: if host-side memory is enabled, it still stays explicit, optional, and hint-only. It does not silently override what is in the workspace.
-- **It chooses clarity before automation**: it would rather make project reality explicit than hand you a black box with blurry edges.
+- **It chooses clarity before automation**: it would rather make project reality explicit than hand the project over to a black box with blurry edges.
 
 <details>
   <summary><strong>See how it maps into the project</strong></summary>
@@ -192,9 +192,9 @@ After that, keep working as usual. Common prompts:
 
 In an initialized project, prompts like “continue this project” or “restore project context” should route to RecallLoom before broader skill fan-out. Host/router integrations should only widen the search when the sidecar is missing, conflicting, clearly insufficient for the task, or you explicitly ask for a deeper review.
 
-If your host exposes stable action names, `rl-resume` is the single operator-facing restore target for that initialized-project path.
+If your host exposes stable action names, `rl-resume` is the single restore action name for that initialized-project path.
 
-For operator-level command entrypoints and helper flow, see [USAGE.md](./USAGE.md).
+For a more operator-oriented view of command entrypoints and helper flow, see [USAGE.md](./USAGE.md).
 
 ## 📦 Package Structure
 
@@ -287,6 +287,16 @@ recallloom/
 </details>
 
 <details>
+  <summary><strong>If I am already using an earlier 0.3.x version, do existing projects need migration before 0.3.3?</strong></summary>
+  <p>Normally, no. `0.3.3` stays on the same `protocol 1.0` compatibility line, so most existing projects can keep going after you update the package. The main difference is that if an older project already has a damaged sidecar or a hidden-versus-visible sidecar conflict, `0.3.3` will surface that problem more explicitly instead of guessing past it.</p>
+</details>
+
+<details>
+  <summary><strong>Do I need to reinstall native commands after updating to 0.3.3?</strong></summary>
+  <p>Only if you want the new `rl-resume` native wrapper. The RecallLoom package itself can be updated and used normally on its own. But if you also want `rl-resume` as a direct host-native command in a supported environment, rerun `install_native_commands.py` after the update.</p>
+</details>
+
+<details>
   <summary><strong>Is it only for coding projects?</strong></summary>
   <p>No. It also works well for research writing, product document collaboration, software project coordination, and mixed long-running projects. If a project does not clearly fit a specialized mode yet, General is the best place to start.</p>
 </details>
@@ -305,6 +315,12 @@ recallloom/
   <summary><strong>Why use a sidecar instead of writing directly into the main project files?</strong></summary>
   <p>Because the separation matters. A sidecar lets continuity state stay next to the project and travel with it, while reducing noise in the project's primary code, docs, and repository structure.</p>
 </details>
+
+If this project helps you, a Star would mean a lot, and sharing it with more people who need this kind of continuity would help too.
+
+## 🙏 Acknowledgements
+
+Thanks to the [Linux.do](https://linux.do) community, and you're welcome to share usage notes and ideas there too.
 
 ## 📚 Further Reading
 
