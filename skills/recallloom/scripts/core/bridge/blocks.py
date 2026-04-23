@@ -88,7 +88,7 @@ def render_bridge_block(workspace, target_file: Path) -> str:
             f"- {config}",
         ]
         if has_update_protocol:
-            body.append(f"- {update_protocol}（先人工查看其中的项目级覆盖规则）")
+            body.append(f"- {update_protocol}（先人工查看其中的项目级约束与补充说明）")
         body.extend(
             [
                 f"- {context_brief}",
@@ -96,7 +96,7 @@ def render_bridge_block(workspace, target_file: Path) -> str:
                 f"- {daily_logs_dir}/（如存在 active 日志，则读取其中最新的一份 active daily log）",
                 "",
                 "平台入口文档负责工具行为规则；RecallLoom 负责项目连续性状态。",
-                "如果存在 update_protocol.md，请先人工查看其中的覆盖规则；v1 helper 不会自动解析其中的自然语言内容。",
+                "如果存在 update_protocol.md，请先人工查看其中的项目级约束与补充说明；v1 helper 不会自动解析其中的自然语言内容。",
                 "不要随意覆盖这些文件。",
                 BRIDGE_END,
             ]
@@ -110,7 +110,7 @@ def render_bridge_block(workspace, target_file: Path) -> str:
             f"- {config}",
         ]
         if has_update_protocol:
-            body.append(f"- {update_protocol} (review project-local overrides first)")
+            body.append(f"- {update_protocol} (review project-local constraints and notes first)")
         body.extend(
             [
                 f"- {context_brief}",
@@ -118,7 +118,7 @@ def render_bridge_block(workspace, target_file: Path) -> str:
                 f"- the latest active daily log under {daily_logs_dir}/ if one exists",
                 "",
                 "Platform entry files define tool behavior; RecallLoom defines project continuity state.",
-                "If update_protocol.md exists, review its project-local overrides first; v1 helpers do not parse natural-language override prose automatically.",
+                "If update_protocol.md exists, review its project-local constraints and notes first; v1 helpers do not parse natural-language override prose automatically.",
                 "Do not overwrite these files casually.",
                 BRIDGE_END,
             ]

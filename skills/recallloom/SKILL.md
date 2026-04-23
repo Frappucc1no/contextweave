@@ -16,7 +16,8 @@ The goal is not to remember everything. The goal is to keep the right project st
 This file is the agent-facing entrypoint for the installable `recallloom/` skill package.
 
 Install and trigger this package through your host agent's normal skill discovery flow.
-RecallLoom itself does not define a custom host-specific launcher inside the package.
+RecallLoom itself does not require a custom host-specific launcher inside the package.
+The package may still ship optional native wrapper templates for supported hosts.
 
 This installable package is intentionally kept lean.
 Human-facing repository landing pages and marketing docs may exist upstream, but they are not bundled into the installed skill directory.
@@ -31,7 +32,7 @@ For package inventory, protocol details, and helper-script behavior, rely on the
 ## Package Facts
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- package version: `0.3.2`
+- package version: `0.3.3`
 - protocol version: `1.0`
 - supported protocol versions:
   - `1.0`
@@ -81,6 +82,7 @@ The correct flow is:
 2. if it exists, continue normally without making initialization into extra ceremony
 3. if it does not exist, explain that the project is not initialized yet and ask whether initialization should be performed
 4. if the user explicitly confirms, or directly says `rl-init`, run the standard initialization action
+5. if the environment cannot provide Python `3.10+`, stop with a blocked runtime result instead of hand-building a sidecar
 
 For this package, the intended initialization action is:
 
@@ -95,12 +97,25 @@ This means `rl-init` should be treated as a stable high-level action name, even 
 For the current package line, the stable action names are:
 
 - `rl-init`
+- `rl-resume`
 - `rl-validate`
 - `rl-status`
 - `rl-bridge`
 
-`rl-init` is the primary first-attach action.
+`rl-init` is the primary operator-friendly first-attach action name.
 The others are operator-facing stable action names that can be interpreted by the host agent or mapped into native custom commands when the host supports that surface.
+
+## Initialized-Project Restore Contract
+
+When a host or agent sees a generic initialized-project restore request:
+
+1. check for a valid RecallLoom sidecar before broad skill fan-out
+2. if the sidecar is valid, route into the normal RecallLoom fast path
+3. let broader memory or workflow systems participate only when the sidecar is missing, conflicting, clearly insufficient, or the user explicitly asks for deeper review
+
+For the current package line, `rl-resume` is the single stable operator-facing action name for that initialized-project restore checkpoint.
+Natural-language restore requests are still the primary public path.
+Do not invent a manual sidecar fallback or a host-local restore alias that is not backed by the package contract.
 
 ## Public Interaction Rules
 
@@ -109,6 +124,7 @@ RecallLoom should default to user task language, not implementation language.
 - Prefer “initialize”, “restore”, “import existing project reality”, “continue”, and “record progress”.
 - Do not lead with helper names, section keys, or the internal `coldstart` label unless the user is explicitly doing operator/debug work.
 - Keep the first response result-first and action-light: one clear next move is better than exposing internal flow.
+- Do not invent a manual sidecar fallback when runtime requirements are missing; surface the blocked state and stop.
 
 ## Fast And Deep Paths
 
@@ -173,7 +189,7 @@ See `references/operation-playbooks.md` for the full flow.
 
 ## Current Read-Side Helpers
 
-The current `0.3.2` line now has three read-side helper directions worth knowing:
+The current `0.3.3` line now has three read-side helper directions worth knowing:
 
 - `preflight_context_check.py`
   - revision-aware freshness review before formal writes

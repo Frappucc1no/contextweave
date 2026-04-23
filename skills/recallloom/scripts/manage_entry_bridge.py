@@ -227,19 +227,20 @@ def main() -> None:
                     scan_result = None
                 else:
                     block = render_bridge_block(workspace, target)
-                    scan_result = scan_auto_attached_context_text(block)
+                    updated_text = replace_or_insert_bridge(current_text, block)
+                    scan_result = scan_auto_attached_context_text(updated_text)
+                    scan_result = {**scan_result, "scope": "full_file"}
                     if scan_result["blocked"]:
                         exit_with_cli_error(
                             parser,
                             json_mode=args.json,
                             exit_code=2,
                             message=(
-                                "Refusing to attach continuity text because the auto-attached bridge block "
+                                "Refusing to attach continuity text because the updated entry file "
                                 "failed the attached-text safety scan: "
                                 + ", ".join(scan_result["hard_block_reasons"])
                             ),
                         )
-                    updated_text = replace_or_insert_bridge(current_text, block)
                     changed = updated_text != current_text
 
                 rel_target = str(target.relative_to(workspace.project_root))

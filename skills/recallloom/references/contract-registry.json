@@ -159,9 +159,9 @@
       ],
       "labels": {
         "en": {
-          "title": "Project-Specific Overrides",
+          "title": "Project-Specific Constraints and Notes",
           "body": [
-            "Use this file to define project-local overrides for:",
+            "Use this file to define project-local constraints and notes for:",
             "",
             "- read order",
             "- write rules",
@@ -171,9 +171,9 @@
           ]
         },
         "zh-CN": {
-          "title": "项目级覆盖规则",
+          "title": "项目级约束与补充说明",
           "body": [
-            "使用此文件定义项目级覆盖规则：",
+            "使用此文件定义项目级约束与补充说明：",
             "",
             "- 读取顺序",
             "- 写入规则",
@@ -228,6 +228,7 @@
       ],
       "targets": [
         "README.md",
+        "README.zh-CN.md",
         "skills/recallloom/SKILL.md"
       ]
     },
@@ -238,6 +239,7 @@
       ],
       "targets": [
         "README.md",
+        "README.zh-CN.md",
         "skills/recallloom/SKILL.md"
       ]
     },

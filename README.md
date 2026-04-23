@@ -6,7 +6,7 @@
 
 **Built for projects that keep moving across agents, sessions, and models.**
 
-[![Version](https://img.shields.io/badge/version-v0.3.2-111827)](./skills/recallloom/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.3.3-111827)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
@@ -130,11 +130,11 @@ PROJECT_ROOT/
 <a id="quick-start"></a>
 ## 🚀 Quick Start
 
-On a first attach, one action matters most: `rl-init`. Four steps are enough:
+On a first attach, you do not need to start from an internal command. Four steps are enough:
 
 1. Install the skill locally.
 2. Explicitly invoke RecallLoom once in the conversation.
-3. If the project is not attached yet, confirm initialization or type `rl-init`.
+3. If the project is not attached yet, confirm initialization; in hosts that expose the stable action name, you can also type `rl-init`.
 4. Continue the project normally.
 
 ### Step 1: Install it
@@ -168,7 +168,7 @@ Common ways to do that:
 - use `@recallloom`
 - or simply say: `Use RecallLoom for this project`
 
-### Step 3: Confirm, or just type `rl-init`
+### Step 3: Confirm first; use `rl-init` when needed
 
 If the agent determines that the project is not initialized yet, you only need to do one of two things:
 
@@ -176,6 +176,8 @@ If the agent determines that the project is not initialized yet, you only need t
 - or type `rl-init`
 
 It will initialize the sidecar, validate the workspace, and return a next-step suggestion.
+
+If the environment cannot provide a compatible Python `3.10+` runtime, the correct next move is to report that blocked state rather than hand-building `.recallloom/` or `recallloom/`.
 
 ### Step 4: Continue the project normally
 
@@ -188,7 +190,11 @@ After that, keep working as usual. Common prompts:
 | `pick up where we left off` | You are returning to the same work after a previous session |
 | `record today's progress` | You want to capture meaningful progress in the continuity files |
 
-For lower-level command entrypoints and operator flow, see [USAGE.md](./USAGE.md).
+In an initialized project, prompts like “continue this project” or “restore project context” should route to RecallLoom before broader skill fan-out. Host/router integrations should only widen the search when the sidecar is missing, conflicting, clearly insufficient for the task, or you explicitly ask for a deeper review.
+
+If your host exposes stable action names, `rl-resume` is the single operator-facing restore target for that initialized-project path.
+
+For operator-level command entrypoints and helper flow, see [USAGE.md](./USAGE.md).
 
 ## 📦 Package Structure
 
@@ -223,7 +229,7 @@ recallloom/
 ### Version Info
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- package version: `0.3.2`
+- package version: `0.3.3`
 - protocol version: `1.0`
 - supported protocol versions:
   - `1.0`

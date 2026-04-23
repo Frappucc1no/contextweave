@@ -19,7 +19,17 @@ This package itself stays host-agnostic:
 - place it in the directory your host already uses for installed skills
 - let the host discover and trigger `SKILL.md` through its standard skill mechanism
 
-This installable package does not bundle host-specific adapter docs or a custom launcher.
+This installable package keeps the core protocol host-agnostic.
+It does not depend on a required host-specific adapter or a custom launcher, though it does ship optional native wrapper templates for supported hosts.
+
+This file is the operator guide.
+Start from `README.md` or `README.zh-CN.md` for the public first-use path, and come here when you need command-level details, helper behavior, or debugging boundaries.
+
+Operator rule for first attach:
+
+- prefer the normal user flow of “initialize the project” before dropping to command aliases
+- treat `rl-init` and `scripts/recallloom.py init` as the stable operator surface
+- if no compatible Python `3.10+` runtime is available, stop and report blocked rather than hand-building `.recallloom/` or `recallloom/`
 
 ## Public Language Rules
 
@@ -100,14 +110,14 @@ npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
 Keep the package contents together.
 Do not copy only `SKILL.md` without the accompanying `references/`, `profiles/`, `scripts/`, and `native_commands/` folders.
 Do not remove `package-metadata.json`; it is the package's version and capability source of truth.
-Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets on the current `0.3.2` release line.
+Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets on the current `0.3.3` release line.
 When building a public release from a source checkout, exclude local metadata and caches such as `.git/`, `__pycache__/`, `*.pyc`, and `.DS_Store`.
 
 For controlled audit or regression checks, you may temporarily point helpers at an alternate managed-assets file by setting `RECALLLOOM_MANAGED_ASSETS_PATH=/absolute/path/to/file.json` for that single command invocation.
 
 ## Managed Asset Registry
 
-The current `0.3.2` release line ships:
+The current `0.3.3` release line ships:
 
 - `managed-assets.json`
 
@@ -138,14 +148,14 @@ RecallLoom expects a host agent tool that can:
 
 RecallLoom does not promise safe arbitrary overlapping writes to the same project workspace.
 
-For the current `0.3.2` release line, the packaged mutating helpers enforce a minimal hard-guard layer:
+For the current `0.3.3` release line, the packaged mutating helpers enforce a minimal hard-guard layer:
 
 - project-scoped write locking
 - atomic replace for managed overwrite-style files
 - revision-aware commits for `context_brief.md`, `rolling_summary.md`, and `update_protocol.md`
 - revision-aware milestone appends for daily logs
 
-For the current `0.3.2` release line:
+For the current `0.3.3` release line:
 
 - read-only helpers may run at any time
 - mutating helpers are serialized single-project operations
@@ -162,7 +172,7 @@ The packaged helper scripts currently assume:
 - a UTF-8 capable filesystem environment
 - a file-based project workspace that the host agent can read and update
 
-Current package `0.3.2` / protocol `1.0` runtime limits:
+Current package `0.3.3` / protocol `1.0` runtime limits:
 
 <!-- RecallLoom metadata sync start: runtime-requirements -->
 - minimum Python version: `3.10`
@@ -178,6 +188,14 @@ Current package `0.3.2` / protocol `1.0` runtime limits:
 
 If your host environment cannot meet those assumptions, treat the helper scripts as unsupported rather than best-effort.
 
+## Blocked Contract
+
+For the current `0.3.3` hardening line, runtime and initialization failures should stay deterministic:
+
+- if the environment cannot supply Python `3.10+`, stop with a blocked runtime result instead of inventing a sidecar
+- if the target path does not look like a project root yet, fail closed and choose the right root first; a brand-new empty directory is still allowed when you intentionally want RecallLoom to initialize a new project root
+- if an existing sidecar is partial, damaged, or conflicting, repair it before retrying
+
 ## Script Invocation
 
 Run helper scripts explicitly with any Python `3.10+` interpreter that is available in your host environment.
@@ -192,6 +210,7 @@ Point that interpreter at the installed package path:
 
 ```text
 <python-3.10+ interpreter> /path/to/recallloom/scripts/recallloom.py init ...
+<python-3.10+ interpreter> /path/to/recallloom/scripts/recallloom.py resume ...
 <python-3.10+ interpreter> /path/to/recallloom/scripts/recallloom.py validate ...
 <python-3.10+ interpreter> /path/to/recallloom/scripts/recallloom.py status ...
 <python-3.10+ interpreter> /path/to/recallloom/scripts/recallloom.py bridge ...
@@ -222,15 +241,16 @@ They are not the primary user interface of RecallLoom.
 
 ## Unified Command Entry
 
-The current `0.3.2` release line introduces a single operator-friendly dispatcher:
+The current `0.3.3` release line introduces a single operator-friendly dispatcher:
 
 - `scripts/recallloom.py`
 
-This file is meant to give users one stable entrypoint for the most common actions instead of making them memorize multiple helper script names.
+This file is meant to give operators one stable entrypoint for the most common actions instead of making them memorize multiple helper script names.
 
 The initial command surface is:
 
 - `init`
+- `resume`
 - `validate`
 - `status`
 - `bridge`
@@ -239,6 +259,7 @@ Typical forms:
 
 ```bash
 python scripts/recallloom.py init /absolute/path/to/project
+python scripts/recallloom.py resume /absolute/path/to/project
 python scripts/recallloom.py validate /absolute/path/to/project
 python scripts/recallloom.py status /absolute/path/to/project
 python scripts/recallloom.py bridge /absolute/path/to/project --file AGENTS.md --yes
@@ -247,6 +268,7 @@ python scripts/recallloom.py bridge /absolute/path/to/project --file AGENTS.md -
 At the product language level, these can be referred to as:
 
 - `rl-init`
+- `rl-resume`
 - `rl-validate`
 - `rl-status`
 - `rl-bridge`
@@ -262,11 +284,30 @@ For the current release, the primary user flow remains:
 1. install the skill package
 2. explicitly invoke RecallLoom once in the conversation
 3. let the agent decide whether initialization is needed
-4. confirm initialization, or directly say `rl-init`
+4. confirm initialization, or use `rl-init` when the host exposes that stable action name
+
+If the host cannot provide Python `3.10+`, do not replace this flow with manual sidecar creation.
+
+## Host Restore Routing Contract
+
+For the current `0.3.3` hardening line, initialized-project restore should be treated as a routing contract, not as open-ended skill relevance:
+
+1. On generic prompts such as “continue this project”, “restore project context”, or “pick up where we left off”, the host/router should run a cheap valid-sidecar gate before broad skill fan-out.
+2. If a valid RecallLoom sidecar exists, route the request into the normal RecallLoom fast path and keep the first response low-jargon and result-first.
+3. If the sidecar is missing, conflicting, damaged, or clearly insufficient for the task, the host may fall back to initialization, repair, or broader review flows.
+4. Broad workflow or memory systems should defer in the RecallLoom-first case instead of claiming the first hop.
+5. Native wrappers and bridge text can support explicit operator actions, but they do not replace host/router first-claim control for generic restore requests.
+
+Current operator anchor:
+
+- `rl-resume` is the single stable operator-facing action name for the initialized-project restore checkpoint in the current package line.
+- `rl-status` remains the operator-facing inspection command for continuity status.
+- Natural-language restore prompts remain the primary public path.
+- Do not invent a host-local stable action name that is not documented and tested in the package.
 
 ## Native Command Wrappers
 
-The current `0.3.2` line also ships a helper for hosts that support native custom commands:
+The current `0.3.3` line also ships a helper for hosts that support native custom commands:
 
 - `scripts/install_native_commands.py`
 
@@ -279,6 +320,7 @@ This helper renders and installs local command wrappers for:
 Current wrapper scope:
 
 - `rl-init`
+- `rl-resume`
 - `rl-status`
 - `rl-validate`
 
@@ -319,9 +361,10 @@ Important boundary:
 - they all delegate to the same underlying dispatcher
 - bridge and continuity state semantics stay unchanged
 - they are not the primary user path for the current release
-- the generated dispatcher command uses the current Python interpreter path by default, which is safer across environments than assuming a global `python` alias
-- in `v0.3.2`, native wrapper scope intentionally remains limited to `rl-init`, `rl-status`, and `rl-validate`
+- the generated dispatcher command uses the current Python interpreter path by default, which is safer than assuming a global `python` alias, but it may still drift when your environment upgrades or relocates that interpreter
+- `v0.3.3` extends the public wrapper surface with `rl-resume` as the single operator-facing restore target
 - `rl-bridge` remains part of the action surface through the dispatcher and helper scripts, but is not required as a native wrapper in this release line
+- generic continue/restore routing still belongs to host/router policy rather than wrapper count
 
 ## Helper Script Map
 
@@ -330,11 +373,12 @@ The installable package currently ships these user-facing helper scripts:
 ### `recallloom.py`
 
 - Purpose: unified operator-friendly wrapper for the most common RecallLoom workflows
-- Typical use: first entrypoint for init / validate / status / bridge
+- Typical use: first entrypoint for init / resume / validate / status / bridge
 - Writes files: depends on subcommand
 - Safety model: does not replace helper semantics; it orchestrates existing helpers and keeps them as the execution truth
 - Initial scope:
   - `init`
+  - `resume`
   - `validate`
   - `status`
   - `bridge`
@@ -342,7 +386,7 @@ The installable package currently ships these user-facing helper scripts:
 ### `install_native_commands.py`
 
 - Purpose: render and optionally install local native command wrappers for supported host CLIs
-- Typical use: optional convenience layer for hosts that benefit from `rl-init`, `rl-status`, and `rl-validate` as native custom commands
+- Typical use: optional convenience layer for hosts that benefit from `rl-init`, `rl-resume`, `rl-status`, and `rl-validate` as native custom commands
 - Writes files: yes when `--yes` is passed; otherwise preview-only
 - Safety model: preview-first; refuses unsupported hosts, requires a resolvable dispatcher command, and does not alter RecallLoom sidecar semantics
 - Current host scope:
@@ -405,7 +449,7 @@ The installable package currently ships these user-facing helper scripts:
 ### `commit_context_file.py`
 
 - Purpose: safely commit a prepared `context_brief.md`, `rolling_summary.md`, or `update_protocol.md`
-- Typical use: AI or a human prepares content, then commits it with revision checks
+- Typical use: AI or a human prepares content, then commits it with revision checks through `--source-file` or UTF-8 `--stdin`
 - Writes files: yes
 - Safety model: requires expected file revision and expected workspace revision; refuses stale writes; validates marker-safe `writer-id` values; rejects missing/duplicate/unknown required section markers before writing
 - `update_protocol.md` behavior: this helper can write `update_protocol.md`, but it does not independently reread project-local override prose before every commit
@@ -414,7 +458,7 @@ The installable package currently ships these user-facing helper scripts:
 ### `append_daily_log_entry.py`
 
 - Purpose: safely append a milestone entry to a daily log
-- Typical use: add a new milestone entry without rewriting the entire daily log from scratch
+- Typical use: add a new milestone entry without rewriting the entire daily log from scratch, using `--entry-file` or UTF-8 `--stdin`
 - Writes files: yes
 - Safety model: requires expected workspace revision; validates required daily-log sections before writing; rejects marker-unsafe `writer-id` values; appends a new entry metadata block and updates sidecar state
 - Scaffold behavior: if the target file is still an initialization scaffold, the first real append replaces that scaffold and writes `entry-1`
@@ -432,7 +476,7 @@ The installable package currently ships these user-facing helper scripts:
 - Explicit intent model: `--session-intent` lets the caller elevate the user's current intent into the recommendation decision, using the same recommendation-type vocabulary returned by the helper
 - Date priority model: an explicit `--preferred-date` takes priority over the helper's default suggestion. If the preferred date disagrees with the heuristic result, the helper returns `review_date_before_append`.
 - Project-local override model: if `update_protocol.md` contains explicit workday or time-policy cues, the helper surfaces those cues and may return `review_date_before_append` instead of silently applying the heuristic suggestion
-- Current scope note: the machineized signal set currently includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues. Broader workspace new-day trajectory remains an operator-reviewed signal rather than a separate machine-readable contract in `v0.3.2`.
+- Current scope note: the machineized signal set currently includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues. Broader workspace new-day trajectory remains an operator-reviewed signal rather than a separate machine-readable contract in `v0.3.3`.
 - Relationship to preflight: this helper complements, not replaces, `preflight_context_check.py`; use it when deciding the likely workday path, then still use preflight before formal writes
 
 ### `summarize_continuity_status.py`
@@ -463,7 +507,7 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: stage a prepared recovery proposal into `companion/recovery/proposals/`
 - Typical use: after a human or model has prepared a recovery proposal from user-provided history materials
 - Writes files: yes
-- Safety model: acquires the project write lock, validates the proposal against the minimum `v0.3.2` section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
+- Safety model: acquires the project write lock, validates the proposal against the minimum `v0.3.3` section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
 - Structured output note: now returns machine-readable `proposal_sections_present`, detected source tiers, and detected promotion targets in addition to the staged proposal path
 - Scope note: this helper only manages proposal placement; it does not decide proposal contents and does not promote anything into core continuity files
 
@@ -472,7 +516,7 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: record a prepared review note for a staged recovery proposal under `companion/recovery/review_log/`
 - Typical use: after a human or model reviews a proposal and wants to preserve the review outcome before promotion
 - Writes files: yes
-- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum `v0.3.2` review structure, refuses empty source content, and refuses to overwrite an existing review record
+- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum `v0.3.3` review structure, refuses empty source content, and refuses to overwrite an existing review record
 - Review-action note: returns a machine-readable `review_action` classification that distinguishes accept, accept-after-edit, reject, and hint-only outcomes
 - Scope note: this helper records review state only; promotion into `rolling_summary.md`, `daily_logs/`, or `context_brief.md` still goes through the normal helper write path
 
@@ -481,7 +525,7 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: prepare structured safe-write context for a reviewed recovery proposal before promotion into core continuity files
 - Typical use: after a proposal and review record already exist and a model or human is ready to choose durable target content
 - Writes files: no
-- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum `v0.3.2` proposal/review structure
+- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum `v0.3.3` proposal/review structure
 - Output model: returns proposal/review digests plus the current `safe_write_context` for `rolling_summary.md`, `context_brief.md`, and the latest daily-log append cursor
 - Scope note: this helper does not promote anything by itself; it only prepares the promotion context for the existing write helpers
 
@@ -500,7 +544,7 @@ This keeps the split clear:
 - the agent decides what to write
 - the helper scripts refuse stale or overlapping writes when the revision context no longer matches
 - the helper scripts do not act as semantic editors or fact-checkers for the prepared content itself
-- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current `0.3.2` release line
+- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current `0.3.3` release line
 
 ### `remove_context.py`
 
@@ -508,7 +552,7 @@ This keeps the split clear:
 - Typical use: uninstall, cleanup for one project, or recovery removal for a damaged workspace
 - Writes files: yes
 - Safety model: preview-first; refuses non-managed assets unless `--force` is explicitly passed; refuses sidecar removal while managed bridge blocks still exist in root entry files
-- Uninstall note: the current `0.3.2` release line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
+- Uninstall note: the current `0.3.3` release line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
 - Recovery note: if normal workspace detection fails, this helper can fall back to recovery discovery; use `--storage-mode hidden|visible` to disambiguate sidecar conflicts
 - Failure note: if sidecar removal succeeds but follow-up cleanup such as `.git/info/exclude` removal fails, the helper reports that partial-cleanup state explicitly instead of hiding it behind a generic failure
 - Hidden-mode side effect: may remove the managed RecallLoom block from `.git/info/exclude`
@@ -519,7 +563,7 @@ This keeps the split clear:
 - Purpose: preview, apply, or remove thin bridges in supported root entry files
 - Typical use: connect root entry files to RecallLoom continuity files
 - Writes files: yes
-- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.3.2` release line accepts exactly one bridge target per invocation
+- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.3.3` release line accepts exactly one bridge target per invocation
 - Attach-safety note: bridge text is scanned before apply; obvious prompt overrides, invisible unicode, and secret-exfil patterns hard block the write, while suspicious-but-ambiguous patterns are surfaced as warnings in the scan result
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 

@@ -6,7 +6,7 @@
 
 **为跨智能体、跨会话、跨模型持续推进的项目准备的连续性层。**
 
-[![Version](https://img.shields.io/badge/version-v0.3.2-111827)](./skills/recallloom/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.3.3-111827)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
@@ -130,11 +130,11 @@ PROJECT_ROOT/
 <a id="quick-start"></a>
 ## 🚀 快速开始
 
-第一次接入，记住一个动作就够了：`rl-init`。按这 4 步走就够了：
+第一次接入，不需要先背内部命令。按这 4 步走就够了：
 
 1. 把技能包安装到本机
 2. 第一次在对话里明确唤起 RecallLoom
-3. 如果项目还没接入，就确认初始化，或直接输入 `rl-init`
+3. 如果项目还没接入，就确认初始化；在支持稳定动作名的宿主里，也可以直接输入 `rl-init`
 4. 然后正常推进项目
 
 ### 第一步：安装
@@ -168,7 +168,7 @@ ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/reca
 - 用 `@recallloom`
 - 或直接说：`请用 RecallLoom 接管这个项目`
 
-### 第三步：用户确认，或直接输入 `rl-init`
+### 第三步：用户确认；需要时再用 `rl-init`
 
 如果 agent 判断当前项目还没初始化，你只需要：
 
@@ -176,6 +176,8 @@ ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/reca
 - 或直接输入：`rl-init`
 
 它会完成初始化、校验，并给出下一步建议。
+
+如果当前环境拿不到兼容的 Python `3.10+`，正确做法是明确报阻塞，而不是手工拼出 `.recallloom/` 或 `recallloom/`。
 
 ### 第四步：正常推进项目
 
@@ -188,7 +190,11 @@ ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/reca
 | `从上次停下的地方继续` | 跨会话回来继续同一项工作时 |
 | `记录今天的关键进展` | 想把重要进展沉淀进连续性文件时 |
 
-命令入口和操作流见 [USAGE.md](./USAGE.md)。
+一旦项目已经初始化，像“继续这个项目”或“先帮我恢复项目上下文”这类请求，就应该先回到 RecallLoom，而不是先做更宽的技能扇出。只有在 sidecar 缺失、冲突、明显不足以支持当前任务，或你明确要求更深一层审查时，宿主 / router 才应该扩大探索范围。
+
+如果宿主支持稳定动作名，`rl-resume` 就是这条已初始化项目恢复路径唯一的面向操作员的恢复动作名。
+
+如需 operator 级命令入口和 helper 操作流，见 [USAGE.md](./USAGE.md)。
 
 ## 📦 技能包结构
 
@@ -224,13 +230,16 @@ recallloom/
 
 ### 版本信息
 
-- 包版本：`0.3.2`
+<!-- RecallLoom metadata sync start: package-metadata -->
+- 包版本：`0.3.3`
 - 协议版本：`1.0`
 - 当前支持的协议版本：
   - `1.0`
+<!-- RecallLoom metadata sync end: package-metadata -->
 
 ### 运行前提
 
+<!-- RecallLoom metadata sync start: runtime-assumptions -->
 - Python 版本要求：`3.10` 及以上
 - 支持的工作区语言：
   - `en`
@@ -240,6 +249,7 @@ recallloom/
   - `CLAUDE.md`
   - `GEMINI.md`
   - `.github/copilot-instructions.md`
+<!-- RecallLoom metadata sync end: runtime-assumptions -->
 
 </details>
 

@@ -47,41 +47,66 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def render_runtime_requirements_block() -> str:
-    lines = [
-        "- minimum Python version: "
-        f"`{protocol_contracts.CONTRACT_REGISTRY['protocol']['current'] and json.loads((SKILL_ROOT / 'package-metadata.json').read_text(encoding='utf-8'))['minimum_python_version']}`",
-        "- supported `workspace_language` values:",
+def doc_language_for_path(path: Path) -> str:
+    return "zh-CN" if path.name.endswith(".zh-CN.md") else "en"
+
+
+def render_runtime_requirements_block(*, language: str) -> str:
+    minimum_python_version = json.loads((SKILL_ROOT / "package-metadata.json").read_text(encoding="utf-8"))[
+        "minimum_python_version"
     ]
-    for language in protocol_contracts.CONTRACT_REGISTRY["workspace"]["languages"]:
-        lines.append(f"  - `{language}`")
-    lines.append("- supported root entry files for thin bridges:")
+    if language == "zh-CN":
+        lines = [
+            f"- Python 版本要求：`{minimum_python_version}` 及以上",
+            "- 支持的工作区语言：",
+        ]
+    else:
+        lines = [
+            f"- minimum Python version: `{minimum_python_version}`",
+            "- supported `workspace_language` values:",
+        ]
+    for workspace_language in protocol_contracts.CONTRACT_REGISTRY["workspace"]["languages"]:
+        lines.append(f"  - `{workspace_language}`")
+    lines.append("- 支持的入口桥接文件：" if language == "zh-CN" else "- supported root entry files for thin bridges:")
     for target in protocol_contracts.CONTRACT_REGISTRY["workspace"]["bridge_targets"]:
         lines.append(f"  - `{target}`")
     return "\n".join(lines)
 
 
-def render_package_metadata_block() -> str:
+def render_package_metadata_block(*, language: str) -> str:
     package_metadata = json.loads((SKILL_ROOT / "package-metadata.json").read_text(encoding="utf-8"))
-    lines = [
-        f"- package version: `{package_metadata['package_version']}`",
-        f"- protocol version: `{package_metadata['protocol_version']}`",
-        "- supported protocol versions:",
-    ]
+    if language == "zh-CN":
+        lines = [
+            f"- 包版本：`{package_metadata['package_version']}`",
+            f"- 协议版本：`{package_metadata['protocol_version']}`",
+            "- 当前支持的协议版本：",
+        ]
+    else:
+        lines = [
+            f"- package version: `{package_metadata['package_version']}`",
+            f"- protocol version: `{package_metadata['protocol_version']}`",
+            "- supported protocol versions:",
+        ]
     for version in package_metadata["supported_protocol_versions"]:
         lines.append(f"  - `{version}`")
     return "\n".join(lines)
 
 
-def render_runtime_assumptions_block() -> str:
+def render_runtime_assumptions_block(*, language: str) -> str:
     package_metadata = json.loads((SKILL_ROOT / "package-metadata.json").read_text(encoding="utf-8"))
-    lines = [
-        f"- Python {package_metadata['minimum_python_version']} or newer",
-        "- supported workspace languages:",
-    ]
-    for language in package_metadata["supported_workspace_languages"]:
-        lines.append(f"  - `{language}`")
-    lines.append("- supported bridge targets:")
+    if language == "zh-CN":
+        lines = [
+            f"- Python 版本要求：`{package_metadata['minimum_python_version']}` 及以上",
+            "- 支持的工作区语言：",
+        ]
+    else:
+        lines = [
+            f"- Python {package_metadata['minimum_python_version']} or newer",
+            "- supported workspace languages:",
+        ]
+    for workspace_language in package_metadata["supported_workspace_languages"]:
+        lines.append(f"  - `{workspace_language}`")
+    lines.append("- 支持的入口桥接文件：" if language == "zh-CN" else "- supported bridge targets:")
     for target in package_metadata["supported_bridge_targets"]:
         lines.append(f"  - `{target}`")
     return "\n".join(lines)
@@ -146,13 +171,13 @@ def render_file_contract_registry_summary_block() -> str:
     return "\n".join(lines).rstrip()
 
 
-def render_block(block_name: str) -> str:
+def render_block(block_name: str, *, language: str) -> str:
     if block_name == "package-metadata":
-        return render_package_metadata_block()
+        return render_package_metadata_block(language=language)
     if block_name == "runtime-assumptions":
-        return render_runtime_assumptions_block()
+        return render_runtime_assumptions_block(language=language)
     if block_name == "runtime-requirements":
-        return render_runtime_requirements_block()
+        return render_runtime_requirements_block(language=language)
     if block_name == "protocol-registry-summary":
         return render_protocol_registry_summary_block()
     if block_name == "file-contract-registry-summary":
@@ -185,9 +210,9 @@ def main() -> None:
 
     sync_blocks = protocol_contracts.CONTRACT_REGISTRY["doc_sync_blocks"]
     for block_name, block in sync_blocks.items():
-        rendered = render_block(block_name)
         for target in block["targets"]:
             path = resolve_doc_target(target)
+            rendered = render_block(block_name, language=doc_language_for_path(path))
             original = path.read_text(encoding="utf-8")
             updated = replace_sync_block(original, block_name, rendered)
             path_str = str(path)

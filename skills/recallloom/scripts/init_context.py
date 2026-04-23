@@ -340,9 +340,152 @@ def looks_like_project_root(project_root: Path) -> bool:
         if (project_root / name).exists():
             return True
     for storage_mode in (DEFAULT_STORAGE_MODE, VISIBLE_STORAGE_MODE):
-        if config_path_for_mode(project_root, storage_mode).is_file():
+        if is_recovery_storage_candidate(
+            project_root,
+            storage_root_for_mode(project_root, storage_mode),
+            storage_mode,
+        ):
             return True
     return False
+
+
+INIT_FAILURE_CONTRACTS = {
+    "python_runtime_unavailable": {
+        "blocked": True,
+        "next_actions": ["find_compatible_python", "report_blocked_runtime"],
+        "user_message": {
+            "en": "RecallLoom cannot start yet because this environment does not provide Python 3.10 or newer.",
+            "zh-CN": "当前环境还不满足 RecallLoom 的运行前提，需要先找到 Python 3.10 或更高版本。",
+        },
+        "operator_note": {
+            "en": "Find or point the host at a compatible Python 3.10+ interpreter before retrying initialization.",
+            "zh-CN": "先找到或指定兼容的 Python 3.10+ 解释器，再重新执行初始化。",
+        },
+    },
+    "not_project_root": {
+        "blocked": False,
+        "next_actions": ["confirm_project_root", "retry_init"],
+        "user_message": {
+            "en": "This path does not look like the project root yet.",
+            "zh-CN": "当前路径还不像一个项目根目录。",
+        },
+        "operator_note": {
+            "en": "Choose an existing project root before retrying initialization.",
+            "zh-CN": "请先切到真实项目根目录，再重新执行初始化。",
+        },
+    },
+    "damaged_sidecar": {
+        "blocked": False,
+        "next_actions": ["repair_existing_sidecar", "rerun_validate_or_init"],
+        "user_message": {
+            "en": "The existing RecallLoom workspace is not trustworthy yet and needs repair before continuing.",
+            "zh-CN": "现有 RecallLoom 工作区结构还不可信，需要先修复后才能继续。",
+        },
+        "operator_note": {
+            "en": "Do not hand-build managed files as a fallback; repair the existing sidecar first.",
+            "zh-CN": "不要手工伪造或拼接 sidecar 文件；请先修复现有工作区。",
+        },
+    },
+    "dual_sidecar_conflict": {
+        "blocked": False,
+        "next_actions": ["resolve_sidecar_conflict", "rerun_validate_or_init"],
+        "user_message": {
+            "en": "This project has conflicting RecallLoom sidecars, so RecallLoom should stop instead of guessing.",
+            "zh-CN": "当前项目存在冲突的 RecallLoom sidecar，不能继续猜测。",
+        },
+        "operator_note": {
+            "en": "Resolve the hidden-vs-visible sidecar conflict before retrying initialization.",
+            "zh-CN": "请先处理隐藏 sidecar 与可见 sidecar 的冲突，再重新初始化。",
+        },
+    },
+    "invalid_date": {
+        "blocked": False,
+        "next_actions": ["correct_date_input", "retry_init"],
+        "user_message": {
+            "en": "The requested date is not a valid YYYY-MM-DD value.",
+            "zh-CN": "当前给定的日期不是合法的 YYYY-MM-DD 值。",
+        },
+        "operator_note": {
+            "en": "Fix the --date value before retrying initialization.",
+            "zh-CN": "请先修正 --date，再重新执行初始化。",
+        },
+    },
+    "invalid_tool_name": {
+        "blocked": False,
+        "next_actions": ["correct_tool_name", "retry_init"],
+        "user_message": {
+            "en": "The requested tool name is not valid for RecallLoom metadata.",
+            "zh-CN": "当前给定的工具名不符合 RecallLoom 元数据约束。",
+        },
+        "operator_note": {
+            "en": "Choose a valid tool name before retrying initialization.",
+            "zh-CN": "请先改成合法的工具名，再重新执行初始化。",
+        },
+    },
+    "invalid_storage_boundary": {
+        "blocked": False,
+        "next_actions": ["correct_storage_target", "retry_init"],
+        "user_message": {
+            "en": "The requested storage layout is not valid for this project path.",
+            "zh-CN": "当前请求的存储布局与这个项目路径不兼容。",
+        },
+        "operator_note": {
+            "en": "Choose a valid project root and storage layout before retrying initialization.",
+            "zh-CN": "请先确认合法的项目根目录与存储布局，再重新初始化。",
+        },
+    },
+    "reinit_create_daily_log_not_allowed": {
+        "blocked": False,
+        "next_actions": ["use_append_daily_log_entry", "retry_without_create_daily_log"],
+        "user_message": {
+            "en": "This project is already initialized. Create new milestone entries through the daily-log append helper instead.",
+            "zh-CN": "当前项目已经初始化；如需记录新的日志条目，请改用 daily log append helper。",
+        },
+        "operator_note": {
+            "en": "Do not use --create-daily-log during re-initialization of an existing workspace.",
+            "zh-CN": "不要在已初始化工作区上继续使用 --create-daily-log。",
+        },
+    },
+}
+
+
+def init_failure_payload(
+    *,
+    project_root: Path,
+    workspace_language: str,
+    reason: str | None = None,
+) -> dict:
+    payload = {"project_root": str(project_root), "initialized": False}
+    if reason is None:
+        return payload
+    contract = INIT_FAILURE_CONTRACTS[reason]
+    payload.update(
+        {
+            "blocked": contract["blocked"],
+            "blocked_reason": reason,
+            "next_actions": contract["next_actions"],
+            "user_message": contract["user_message"][workspace_language],
+            "operator_note": contract["operator_note"][workspace_language],
+        }
+    )
+    return payload
+
+
+def infer_init_failure_reason(message: str) -> str | None:
+    lowered = message.lower()
+    if "python 3.10+" in lowered or "runtime bootstrap failed" in lowered:
+        return "python_runtime_unavailable"
+    if (
+        "does not look like a project root" in lowered
+        or "target path does not exist" in lowered
+        or "target path is not a directory" in lowered
+    ):
+        return "not_project_root"
+    if "different storage mode" in lowered or "conflicting or partial recallloom sidecar" in lowered:
+        return "dual_sidecar_conflict"
+    if any(token in lowered for token in ("damaged", "partial", "symlink", "non-directory")):
+        return "damaged_sidecar"
+    return None
 
 
 def main() -> None:
@@ -351,6 +494,7 @@ def main() -> None:
     created_dirs: list[Path] = []
     file_snapshots: list[tuple[Path, bool, str]] = []
     exclude_snapshot: tuple[Path, bool, str] | None = None
+    requested_workspace_language = args.workspace_language
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
@@ -359,7 +503,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=str(exc),
-            payload={"project_root": str(Path(args.target).expanduser().resolve()), "initialized": False},
+            payload=init_failure_payload(
+                project_root=Path(args.target).expanduser().resolve(),
+                workspace_language=requested_workspace_language,
+                reason="python_runtime_unavailable",
+            ),
         )
 
     target_path = Path(args.target).expanduser()
@@ -369,7 +517,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=f"Target path does not exist: {target_path.resolve()}",
-            payload={"project_root": str(target_path.expanduser().resolve()), "initialized": False},
+            payload=init_failure_payload(
+                project_root=target_path.expanduser().resolve(),
+                workspace_language=requested_workspace_language,
+                reason="not_project_root",
+            ),
         )
     project_root = target_path.resolve()
     if not project_root.is_dir():
@@ -378,7 +530,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=f"Target path is not a directory: {project_root}",
-            payload={"project_root": str(project_root), "initialized": False},
+            payload=init_failure_payload(
+                project_root=project_root,
+                workspace_language=requested_workspace_language,
+                reason="not_project_root",
+            ),
         )
     if not looks_like_project_root(project_root):
         exit_with_cli_error(
@@ -389,7 +545,11 @@ def main() -> None:
                 "Target path does not look like a project root yet. "
                 "Create or point RecallLoom at an existing project directory with recognizable project signals first."
             ),
-            payload={"project_root": str(project_root), "initialized": False},
+            payload=init_failure_payload(
+                project_root=project_root,
+                workspace_language=requested_workspace_language,
+                reason="not_project_root",
+            ),
         )
 
     if not validate_iso_date(args.date):
@@ -398,7 +558,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=f"Invalid --date value: {args.date}. Expected YYYY-MM-DD.",
-            payload={"project_root": str(project_root), "initialized": False},
+            payload=init_failure_payload(
+                project_root=project_root,
+                workspace_language=requested_workspace_language,
+                reason="invalid_date",
+            ),
         )
 
     storage_mode = validate_storage_mode(args.storage_mode)
@@ -411,7 +575,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=str(exc),
-            payload={"project_root": str(project_root), "initialized": False},
+            payload=init_failure_payload(
+                project_root=project_root,
+                workspace_language=workspace_language,
+                reason="invalid_tool_name",
+            ),
         )
 
     try:
@@ -426,7 +594,11 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=opposite_boundary_issue,
-                    payload={"project_root": str(project_root), "initialized": False},
+                    payload=init_failure_payload(
+                        project_root=project_root,
+                        workspace_language=workspace_language,
+                        reason="invalid_storage_boundary",
+                    ),
                 )
             if opposite_config.exists():
                 exit_with_cli_error(
@@ -437,7 +609,11 @@ def main() -> None:
                             "A RecallLoom workspace already exists in a different storage mode for this project. "
                         "Remove it first or keep using the existing mode."
                     ),
-                    payload={"project_root": str(project_root), "initialized": False},
+                    payload=init_failure_payload(
+                        project_root=project_root,
+                        workspace_language=workspace_language,
+                        reason="dual_sidecar_conflict",
+                    ),
                 )
             if opposite_root.exists():
                 if opposite_root.is_file():
@@ -449,7 +625,11 @@ def main() -> None:
                             "A path for the opposite storage mode already exists and is not a directory. "
                             "Remove it before initializing this project."
                         ),
-                        payload={"project_root": str(project_root), "initialized": False},
+                        payload=init_failure_payload(
+                            project_root=project_root,
+                            workspace_language=workspace_language,
+                            reason="dual_sidecar_conflict",
+                        ),
                     )
                 if is_recovery_storage_candidate(project_root, opposite_root, opposite_mode):
                     exit_with_cli_error(
@@ -460,7 +640,11 @@ def main() -> None:
                             "A sidecar-like storage root already exists for the opposite storage mode. "
                             "This looks like a conflicting or partial RecallLoom sidecar. Remove or repair it before initializing this project."
                         ),
-                        payload={"project_root": str(project_root), "initialized": False},
+                        payload=init_failure_payload(
+                            project_root=project_root,
+                            workspace_language=workspace_language,
+                            reason="dual_sidecar_conflict",
+                        ),
                     )
 
             storage_root = storage_root_for_mode(project_root, storage_mode)
@@ -471,7 +655,11 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=boundary_issue,
-                    payload={"project_root": str(project_root), "initialized": False},
+                    payload=init_failure_payload(
+                        project_root=project_root,
+                        workspace_language=workspace_language,
+                        reason="invalid_storage_boundary",
+                    ),
                 )
             if storage_root.exists() and not storage_root.is_dir():
                 exit_with_cli_error(
@@ -481,7 +669,11 @@ def main() -> None:
                     message=(
                         f"Refusing to initialize because the storage root path already exists as a non-directory: {storage_root}"
                     ),
-                    payload={"project_root": str(project_root), "initialized": False},
+                    payload=init_failure_payload(
+                        project_root=project_root,
+                        workspace_language=workspace_language,
+                        reason="damaged_sidecar",
+                    ),
                 )
             issue = existing_storage_issue(
                 storage_root=storage_root,
@@ -495,7 +687,11 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=issue,
-                    payload={"project_root": str(project_root), "initialized": False},
+                    payload=init_failure_payload(
+                        project_root=project_root,
+                        workspace_language=workspace_language,
+                        reason="damaged_sidecar",
+                    ),
                 )
 
             existing_valid_storage = storage_root.exists() and any(storage_root.iterdir())
@@ -520,7 +716,11 @@ def main() -> None:
                             "Refusing to create a new daily log during re-initialization of an existing workspace. "
                             "Use append_daily_log_entry.py for new milestone entries instead."
                         ),
-                        payload={"project_root": str(project_root), "initialized": False},
+                        payload=init_failure_payload(
+                            project_root=project_root,
+                            workspace_language=workspace_language,
+                            reason="reinit_create_daily_log_not_allowed",
+                        ),
                     )
 
                 git_exclude_updated = False
@@ -729,7 +929,11 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=str(exc),
-                    payload={"project_root": str(project_root), "initialized": False},
+                    payload=init_failure_payload(
+                        project_root=project_root,
+                        workspace_language=workspace_language,
+                        reason=infer_init_failure_reason(str(exc)),
+                    ),
                 )
             if state_path.exists() and not args.force:
                 skipped.append(str(state_path))
@@ -767,7 +971,10 @@ def main() -> None:
             json_mode=args.json,
             exit_code=3,
             message=str(exc),
-            payload={"project_root": str(project_root), "initialized": False},
+            payload=init_failure_payload(
+                project_root=project_root,
+                workspace_language=requested_workspace_language,
+            ),
         )
     except ConfigContractError as exc:
         try:
@@ -784,7 +991,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=str(exc),
-            payload={"project_root": str(project_root), "initialized": False},
+            payload=init_failure_payload(
+                project_root=project_root,
+                workspace_language=requested_workspace_language,
+                reason=infer_init_failure_reason(str(exc)),
+            ),
         )
     except (OSError, UnicodeDecodeError) as exc:
         try:
@@ -801,7 +1012,10 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=f"Filesystem error: {exc}",
-            payload={"project_root": str(project_root), "initialized": False},
+            payload=init_failure_payload(
+                project_root=project_root,
+                workspace_language=requested_workspace_language,
+            ),
         )
 
     if args.json:

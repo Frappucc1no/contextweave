@@ -134,7 +134,7 @@ Do not place unrelated project files inside:
 - `PROJECT_ROOT/.recallloom/`
 - `PROJECT_ROOT/recallloom/`
 
-For the current `0.3.2` release line on protocol `1.0`, the package-level declaration source for managed storage-root assets is:
+For the current `0.3.3` release line on protocol `1.0`, the package-level declaration source for managed storage-root assets is:
 
 - `recallloom/managed-assets.json`
 
@@ -153,7 +153,7 @@ Protocol `1.0` continues to center on the core managed assets:
 - `daily_logs/`
 - `update_protocol.md`
 
-For the current `0.3.2` release line, one additional optional managed namespace is recognized:
+For the current `0.3.3` release line, one additional optional managed namespace is recognized:
 
 - `STORAGE_ROOT/companion/`
 
@@ -171,7 +171,7 @@ This namespace is not:
 
 When a workspace has not enabled companion-backed features, the absence of `STORAGE_ROOT/companion/` must not be treated as damage or incompleteness.
 
-Current recognized subtree in this `0.3.2` release line:
+Current recognized subtree in this `0.3.3` release line:
 
 - `STORAGE_ROOT/companion/recovery/`
 
@@ -271,7 +271,7 @@ The protocol therefore prefers:
 - append-only milestone logs
 - explicit reconciliation when other writers may exist
 
-For packaged helper writes in the current `0.3.2` release line, RecallLoom also uses:
+For packaged helper writes in the current `0.3.3` release line, RecallLoom also uses:
 
 - project-scoped write locking
 - revision-aware commits for overwrite-style files
@@ -514,7 +514,7 @@ RecallLoom also uses managed block boundaries for two integration surfaces:
 
 ### Supported root entry files for thin bridges
 
-Current supported root entry files for the current `0.3.2` release line:
+Current supported root entry files for the current `0.3.3` release line:
 
 - `AGENTS.md`
 - `CLAUDE.md`

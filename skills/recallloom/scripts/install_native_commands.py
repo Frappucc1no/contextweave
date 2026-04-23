@@ -24,6 +24,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 NATIVE_COMMAND_ROOT = SCRIPT_DIR.parent / "native_commands"
 SUPPORTED_HOSTS = ("claude-code", "gemini-cli", "opencode")
 SUPPORTED_SCOPES = ("project", "user")
+REQUIRED_NATIVE_COMMANDS = {
+    "claude-code": {"rl-init.md", "rl-resume.md", "rl-status.md", "rl-validate.md"},
+    "gemini-cli": {"rl-init.toml", "rl-resume.toml", "rl-status.toml", "rl-validate.toml"},
+    "opencode": {"rl-init.md", "rl-resume.md", "rl-status.md", "rl-validate.md"},
+}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -79,6 +84,8 @@ def project_root(path_raw: str) -> Path:
 
 def current_python_command() -> str:
     candidate = Path(sys.executable).expanduser()
+    if candidate.is_absolute():
+        return f'"{candidate}"'
     try:
         resolved = candidate.resolve()
     except OSError:
@@ -165,6 +172,11 @@ def render_templates_for_host(host: str, *, dispatcher_command: str) -> dict[str
         rendered[target_name] = read_text(template_path).replace("__DISPATCHER_COMMAND__", dispatcher_command)
     if not rendered:
         raise ConfigContractError(f"No native command templates found for host {host}.")
+    missing_required = sorted(REQUIRED_NATIVE_COMMANDS[host] - set(rendered))
+    if missing_required:
+        raise ConfigContractError(
+            f"Missing required native command templates for host {host}: {', '.join(missing_required)}"
+        )
     return rendered
 
 

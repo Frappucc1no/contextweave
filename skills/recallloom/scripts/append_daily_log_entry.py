@@ -5,7 +5,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import select
+import sys
+import time
 
 from core.protocol.contracts import FILE_KEYS, SECTION_KEYS
 from core.protocol.markers import (
@@ -19,6 +23,7 @@ from core.protocol.sections import (
     missing_section_keys,
     unknown_section_keys,
 )
+from core.safety.attached_text import scan_auto_attached_context_text
 
 from _common import (
     atomic_write_if_unchanged,
@@ -46,6 +51,28 @@ from _common import (
 )
 
 
+DEFAULT_MAX_INPUT_BYTES = 4 * 1024 * 1024
+STDIN_READ_CHUNK_BYTES = 64 * 1024
+STDIN_READ_TIMEOUT_SECONDS = 30
+RESERVED_MARKER_PREFIXES = (
+    "<!-- recallloom:file=",
+    "<!-- last-writer:",
+    "<!-- file-state:",
+    "<!-- daily-log-entry:",
+    "<!-- daily-log-scaffold",
+)
+
+
+def positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--max-input-bytes must be an integer.") from exc
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("--max-input-bytes must be greater than zero.")
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Safely append a milestone entry to a RecallLoom daily log."
@@ -60,11 +87,181 @@ def build_parser() -> argparse.ArgumentParser:
             "Without this flag, appends to older daily logs are rejected."
         ),
     )
-    parser.add_argument("--entry-file", required=True, help="Path to prepared entry markdown content.")
+    parser.add_argument("--entry-file", help="Path to prepared entry markdown content.")
+    parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read prepared entry markdown content from UTF-8 stdin instead of a file.",
+    )
+    parser.add_argument(
+        "--max-input-bytes",
+        type=positive_int,
+        default=DEFAULT_MAX_INPUT_BYTES,
+        help="Maximum prepared-entry input size in bytes. Defaults to 4 MiB.",
+    )
     parser.add_argument("--expected-workspace-revision", type=int, required=True)
     parser.add_argument("--writer-id", default=DISPLAY_NAME)
     parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
     return parser
+
+
+def read_limited_file_text(parser, *, json_mode: bool, entry_path: Path, max_input_bytes: int) -> str:
+    try:
+        size = entry_path.stat().st_size
+    except OSError as exc:
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=f"Failed to inspect entry file: {exc}",
+        )
+    if size > max_input_bytes:
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=f"Entry file exceeds --max-input-bytes ({size} > {max_input_bytes}): {entry_path}",
+        )
+    try:
+        return read_text(entry_path)
+    except UnicodeDecodeError:
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=f"Entry file must be valid UTF-8: {entry_path}",
+        )
+    except OSError as exc:
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=f"Failed to read entry file: {exc}",
+        )
+    raise AssertionError("unreachable")
+
+
+def read_limited_stdin(parser, *, json_mode: bool, max_input_bytes: int) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    deadline = time.monotonic() + STDIN_READ_TIMEOUT_SECONDS
+    fd = sys.stdin.buffer.fileno()
+
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            exit_with_cli_error(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message=f"Timed out while reading stdin after {STDIN_READ_TIMEOUT_SECONDS} seconds.",
+            )
+        try:
+            ready, _, _ = select.select([fd], [], [], remaining)
+        except (OSError, ValueError) as exc:
+            exit_with_cli_error(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message=f"Failed to poll stdin: {exc}",
+            )
+        if not ready:
+            exit_with_cli_error(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message=f"Timed out while reading stdin after {STDIN_READ_TIMEOUT_SECONDS} seconds.",
+            )
+        try:
+            chunk = os.read(fd, STDIN_READ_CHUNK_BYTES)
+        except OSError as exc:
+            exit_with_cli_error(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message=f"Failed to read stdin: {exc}",
+            )
+        if chunk == b"":
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+        if total > max_input_bytes:
+            exit_with_cli_error(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message=f"Stdin input exceeds --max-input-bytes ({total} > {max_input_bytes}).",
+            )
+    return b"".join(chunks)
+
+
+def load_entry_text(
+    parser,
+    *,
+    json_mode: bool,
+    entry_file: str | None,
+    use_stdin: bool,
+    max_input_bytes: int,
+) -> tuple[str, str]:
+    if bool(entry_file) == bool(use_stdin):
+        if entry_file and use_stdin:
+            exit_with_cli_error(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message="Use exactly one prepared-entry input: --entry-file or --stdin.",
+            )
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message="Provide prepared entry content with --entry-file or --stdin.",
+        )
+
+    if entry_file:
+        entry_path = Path(entry_file).expanduser().resolve()
+        if not entry_path.is_file():
+            exit_with_cli_error(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message=f"Entry file does not exist: {entry_path}",
+            )
+        return (
+            read_limited_file_text(
+                parser,
+                json_mode=json_mode,
+                entry_path=entry_path,
+                max_input_bytes=max_input_bytes,
+            ),
+            "file",
+        )
+
+    if sys.stdin.isatty():
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message="Stdin input is empty. Pipe or redirect UTF-8 prepared content when using --stdin.",
+        )
+    raw = read_limited_stdin(parser, json_mode=json_mode, max_input_bytes=max_input_bytes)
+    if raw == b"":
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message="Stdin input is empty. Pipe or redirect UTF-8 prepared content when using --stdin.",
+        )
+    try:
+        return raw.decode("utf-8"), "stdin"
+    except UnicodeDecodeError:
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message="Stdin input must be valid UTF-8.",
+        )
+    raise AssertionError("unreachable")
 
 
 def build_entry_block(body_text: str, *, writer_id: str, entry_seq: int) -> str:
@@ -87,6 +284,41 @@ def existing_entry_sequences(text: str) -> list[int]:
     return sequences
 
 
+def reserved_marker_lines(text: str) -> list[tuple[int, str]]:
+    results = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        candidate = line.strip()
+        if any(candidate.startswith(prefix) for prefix in RESERVED_MARKER_PREFIXES):
+            results.append((line_number, candidate))
+    return results
+
+
+def validate_entry_body(parser, *, json_mode: bool, body_text: str) -> None:
+    reserved = reserved_marker_lines(body_text)
+    if reserved:
+        line_number, marker = reserved[0]
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=(
+                "Refusing to append because the prepared entry contains a reserved RecallLoom marker "
+                f"on line {line_number}: {marker}"
+            ),
+        )
+    attach_scan = scan_auto_attached_context_text(body_text)
+    if attach_scan["blocked"]:
+        exit_with_cli_error(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=(
+                "Refusing to append because the prepared entry failed the attached-text safety scan: "
+                + ", ".join(attach_scan["hard_block_reasons"])
+            ),
+        )
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -102,9 +334,13 @@ def main() -> None:
     except ConfigContractError as exc:
         exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
 
-    entry_path = Path(args.entry_file).expanduser().resolve()
-    if not entry_path.is_file():
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Entry file does not exist: {entry_path}")
+    body_text, input_mode = load_entry_text(
+        parser,
+        json_mode=args.json,
+        entry_file=args.entry_file,
+        use_stdin=args.stdin,
+        max_input_bytes=args.max_input_bytes,
+    )
 
     try:
         workspace = find_recallloom_root(args.path)
@@ -149,8 +385,8 @@ def main() -> None:
                     ),
                 )
 
-            body_text = read_text(entry_path)
             missing_keys = missing_section_keys(body_text, SECTION_KEYS["daily_log"])
+            validate_entry_body(parser, json_mode=args.json, body_text=body_text)
             if missing_keys:
                 exit_with_cli_error(
                     parser,
@@ -194,6 +430,16 @@ def main() -> None:
                         json_mode=args.json,
                         exit_code=2,
                         message=f"Target daily log is missing a valid daily_log file marker: {target_path}",
+                    )
+                if marker.language != workspace.workspace_language:
+                    exit_with_cli_error(
+                        parser,
+                        json_mode=args.json,
+                        exit_code=2,
+                        message=(
+                            f"Target daily log language marker '{marker.language}' does not match workspace_language "
+                            f"'{workspace.workspace_language}'. Repair the target file before appending."
+                        ),
                     )
                 scaffold = parse_daily_log_scaffold_marker(current_text)
                 sequences = existing_entry_sequences(current_text)
@@ -298,6 +544,7 @@ def main() -> None:
 
     payload = {
         "ok": True,
+        "input_mode": input_mode,
         "target_path": str(target_path),
         "entry_seq": next_seq,
         "new_workspace_revision": state["workspace_revision"],
