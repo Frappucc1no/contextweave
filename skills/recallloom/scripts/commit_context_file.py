@@ -11,6 +11,7 @@ import select
 import sys
 import time
 
+from core.failure.contracts import failure_payload, preferred_failure_language
 from core.protocol.contracts import FILE_KEYS, OPTIONAL_SECTION_KEYS, SECTION_KEYS
 from core.protocol.markers import (
     file_marker,
@@ -27,6 +28,8 @@ from core.protocol.sections import (
 from core.safety.attached_text import scan_auto_attached_context_text
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     DISPLAY_NAME,
     EnvironmentContractError,
@@ -34,8 +37,10 @@ from _common import (
     StorageResolutionError,
     atomic_write_if_unchanged,
     dump_json,
+    enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
+    exit_with_failure_contract,
     find_recallloom_root,
     load_workspace_state,
     now_iso_timestamp,
@@ -100,34 +105,40 @@ def read_limited_file_text(parser, *, json_mode: bool, source_path: Path, max_in
     try:
         size = source_path.stat().st_size
     except OSError as exc:
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message=f"Failed to inspect source file: {exc}",
+            reason="invalid_prepared_input",
         )
     if size > max_input_bytes:
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message=f"Source file exceeds --max-input-bytes ({size} > {max_input_bytes}): {source_path}",
+            reason="invalid_prepared_input",
+            details={"size": size, "max_input_bytes": max_input_bytes, "source_path": str(source_path)},
         )
     try:
         return read_text(source_path)
     except UnicodeDecodeError:
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message=f"Source file must be valid UTF-8: {source_path}",
+            reason="invalid_prepared_input",
+            details={"source_path": str(source_path)},
         )
     except OSError as exc:
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message=f"Failed to read source file: {exc}",
+            reason="invalid_prepared_input",
         )
     raise AssertionError("unreachable")
 
@@ -141,47 +152,53 @@ def read_limited_stdin(parser, *, json_mode: bool, max_input_bytes: int) -> byte
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
                 message=f"Timed out while reading stdin after {STDIN_READ_TIMEOUT_SECONDS} seconds.",
+                reason="invalid_prepared_input",
             )
         try:
             ready, _, _ = select.select([fd], [], [], remaining)
         except (OSError, ValueError) as exc:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
                 message=f"Failed to poll stdin: {exc}",
+                reason="invalid_prepared_input",
             )
         if not ready:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
                 message=f"Timed out while reading stdin after {STDIN_READ_TIMEOUT_SECONDS} seconds.",
+                reason="invalid_prepared_input",
             )
         try:
             chunk = os.read(fd, STDIN_READ_CHUNK_BYTES)
         except OSError as exc:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
                 message=f"Failed to read stdin: {exc}",
+                reason="invalid_prepared_input",
             )
         if chunk == b"":
             break
         chunks.append(chunk)
         total += len(chunk)
         if total > max_input_bytes:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
                 message=f"Stdin input exceeds --max-input-bytes ({total} > {max_input_bytes}).",
+                reason="invalid_prepared_input",
+                details={"size": total, "max_input_bytes": max_input_bytes},
             )
     return b"".join(chunks)
 
@@ -196,27 +213,31 @@ def load_prepared_text(
 ) -> tuple[str, str]:
     if bool(source_file) == bool(use_stdin):
         if source_file and use_stdin:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
                 message="Use exactly one prepared-content input: --source-file or --stdin.",
+                reason="invalid_prepared_input",
             )
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message="Provide prepared content with --source-file or --stdin.",
+            reason="invalid_prepared_input",
         )
 
     if source_file:
         source_path = Path(source_file).expanduser().resolve()
         if not source_path.is_file():
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
                 message=f"Source file does not exist: {source_path}",
+                reason="invalid_prepared_input",
+                details={"source_path": str(source_path)},
             )
         return (
             read_limited_file_text(
@@ -229,28 +250,31 @@ def load_prepared_text(
         )
 
     if sys.stdin.isatty():
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message="Stdin input is empty. Pipe or redirect UTF-8 prepared content when using --stdin.",
+            reason="invalid_prepared_input",
         )
     raw = read_limited_stdin(parser, json_mode=json_mode, max_input_bytes=max_input_bytes)
     if raw == b"":
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message="Stdin input is empty. Pipe or redirect UTF-8 prepared content when using --stdin.",
+            reason="invalid_prepared_input",
         )
     try:
         return raw.decode("utf-8"), "stdin"
     except UnicodeDecodeError:
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
             message="Stdin input must be valid UTF-8.",
+            reason="invalid_prepared_input",
         )
     raise AssertionError("unreachable")
 
@@ -288,6 +312,14 @@ def validate_prepared_body(parser, *, json_mode: bool, body_text: str) -> None:
                 "Refusing to commit because the prepared body contains a reserved RecallLoom marker "
                 f"on line {line_number}: {marker}"
             ),
+            payload=failure_payload(
+                "invalid_prepared_input",
+                language=preferred_failure_language(os.environ),
+                error=(
+                    "Refusing to commit because the prepared body contains a reserved RecallLoom marker "
+                    f"on line {line_number}: {marker}"
+                ),
+            ),
         )
     attach_scan = scan_auto_attached_context_text(body_text)
     if attach_scan["blocked"]:
@@ -298,6 +330,15 @@ def validate_prepared_body(parser, *, json_mode: bool, body_text: str) -> None:
             message=(
                 "Refusing to commit because the prepared body failed the attached-text safety scan: "
                 + ", ".join(attach_scan["hard_block_reasons"])
+            ),
+            payload=failure_payload(
+                "attach_scan_blocked",
+                language=preferred_failure_language(os.environ),
+                error=(
+                    "Refusing to commit because the prepared body failed the attached-text safety scan: "
+                    + ", ".join(attach_scan["hard_block_reasons"])
+                ),
+                details={"hard_block_reasons": attach_scan["hard_block_reasons"]},
             ),
         )
 
@@ -335,7 +376,14 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     source_text, input_mode = load_prepared_text(
         parser,
@@ -348,17 +396,31 @@ def main() -> None:
     try:
         workspace = find_recallloom_root(args.path)
     except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
-    if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
-
-    target_path = workspace.storage_root / FILE_KEYS[args.file_key]
-    if not target_path.is_file():
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
+    if workspace is None:
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            reason="no_project_root",
+        )
+
+    target_path = workspace.storage_root / FILE_KEYS[args.file_key]
+    if not target_path.is_file():
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
             message=f"Missing target file: {target_path}",
+            reason="malformed_managed_file",
+            details={"path": str(target_path)},
         )
 
     try:
@@ -370,7 +432,14 @@ def main() -> None:
                     else validate_writer_id(args.writer_id)
                 )
             except ConfigContractError as exc:
-                exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+                exit_with_failure_contract(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=str(exc),
+                    reason="invalid_tool_name",
+                    details={"writer_id": args.writer_id},
+                )
 
             state_path = workspace.storage_root / FILE_KEYS["state"]
             state = load_workspace_state(state_path)
@@ -383,19 +452,33 @@ def main() -> None:
                         f"Workspace revision changed from {args.expected_workspace_revision} to "
                         f"{state['workspace_revision']}. Rerun preflight before writing."
                     ),
+                    payload=failure_payload(
+                        "stale_write_context",
+                        language=workspace.workspace_language,
+                        error=(
+                            f"Workspace revision changed from {args.expected_workspace_revision} to "
+                            f"{state['workspace_revision']}. Rerun preflight before writing."
+                        ),
+                        details={
+                            "expected_workspace_revision": args.expected_workspace_revision,
+                            "current_workspace_revision": state["workspace_revision"],
+                        },
+                    ),
                 )
 
             current_text = read_text(target_path)
             current_marker = parse_file_marker(current_text)
             if current_marker is None:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
                     message=f"Target file is missing a valid file marker: {target_path}",
+                    reason="malformed_managed_file",
+                    details={"path": str(target_path)},
                 )
             if current_marker.file_key != args.file_key:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
@@ -403,9 +486,11 @@ def main() -> None:
                         f"Target file marker '{current_marker.file_key}' does not match requested file key "
                         f"'{args.file_key}'. Repair the target file before committing."
                     ),
+                    reason="malformed_managed_file",
+                    details={"path": str(target_path)},
                 )
             if current_marker.language != workspace.workspace_language:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
@@ -413,14 +498,18 @@ def main() -> None:
                         f"Target file language marker '{current_marker.language}' does not match workspace_language "
                         f"'{workspace.workspace_language}'. Repair the target file before committing."
                     ),
+                    reason="malformed_managed_file",
+                    details={"path": str(target_path)},
                 )
             current_state = parse_file_state_marker(current_text)
             if current_state is None:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
                     message=f"Target file is missing a valid file-state marker: {target_path}",
+                    reason="malformed_managed_file",
+                    details={"path": str(target_path)},
                 )
             if current_state.revision != args.expected_file_revision:
                 exit_with_cli_error(
@@ -431,17 +520,31 @@ def main() -> None:
                         f"File revision changed from {args.expected_file_revision} to "
                         f"{current_state.revision}. Reread the file before writing."
                     ),
+                    payload=failure_payload(
+                        "stale_write_context",
+                        language=workspace.workspace_language,
+                        error=(
+                            f"File revision changed from {args.expected_file_revision} to "
+                            f"{current_state.revision}. Reread the file before writing."
+                        ),
+                        details={
+                            "expected_file_revision": args.expected_file_revision,
+                            "current_file_revision": current_state.revision,
+                        },
+                    ),
                 )
 
             source_marker = parse_file_marker(source_text)
             if source_marker is not None and source_marker.file_key != args.file_key:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
                     message=(
                         f"Source file marker '{source_marker.file_key}' does not match requested file key '{args.file_key}'."
                     ),
+                    reason="invalid_prepared_input",
+                    details={"source_file_key": source_marker.file_key, "requested_file_key": args.file_key},
                 )
 
             timestamp = now_iso_timestamp()
@@ -451,7 +554,7 @@ def main() -> None:
             validate_prepared_body(parser, json_mode=args.json, body_text=body_text)
             missing_keys = missing_section_keys(body_text, SECTION_KEYS[args.file_key])
             if missing_keys:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
@@ -459,10 +562,12 @@ def main() -> None:
                         "Refusing to commit because the prepared file is missing required section markers: "
                         + ", ".join(missing_keys)
                     ),
+                    reason="invalid_prepared_input",
+                    details={"missing_section_keys": missing_keys},
                 )
             duplicate_keys = duplicate_section_keys(body_text)
             if duplicate_keys:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
@@ -470,13 +575,15 @@ def main() -> None:
                         "Refusing to commit because the prepared file contains duplicate section markers: "
                         + ", ".join(duplicate_keys)
                     ),
+                    reason="invalid_prepared_input",
+                    details={"duplicate_section_keys": duplicate_keys},
                 )
             unknown_keys = unknown_section_keys(
                 body_text,
                 [*SECTION_KEYS[args.file_key], *OPTIONAL_SECTION_KEYS.get(args.file_key, [])],
             )
             if unknown_keys:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
@@ -484,6 +591,8 @@ def main() -> None:
                         "Refusing to commit because the prepared file contains unknown section markers: "
                         + ", ".join(unknown_keys)
                     ),
+                    reason="invalid_prepared_input",
+                    details={"unknown_section_keys": unknown_keys},
                 )
             new_text = build_managed_text(
                 file_key=args.file_key,
@@ -497,11 +606,12 @@ def main() -> None:
             try:
                 atomic_write_if_unchanged(target_path, expected_text=current_text, new_text=new_text)
             except OSError as exc:
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
                     message=f"Filesystem error while writing {target_path}: {exc}",
+                    reason="damaged_sidecar",
                 )
 
             state["workspace_revision"] = new_workspace_revision
@@ -519,7 +629,7 @@ def main() -> None:
                 try:
                     restore_text_snapshot(target_path, existed=True, text=current_text)
                 except OSError as rollback_exc:
-                    exit_with_cli_error(
+                    exit_with_failure_contract(
                         parser,
                         json_mode=args.json,
                         exit_code=2,
@@ -527,8 +637,9 @@ def main() -> None:
                             f"Failed to update state after writing {target_path}: {exc}. "
                             f"Rollback also failed: {rollback_exc}. Workspace may be partially updated."
                         ),
+                        reason="damaged_sidecar",
                     )
-                exit_with_cli_error(
+                exit_with_failure_contract(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
@@ -536,13 +647,33 @@ def main() -> None:
                         f"Failed to update state after writing {target_path}: {exc}. "
                         "The target file was restored to its previous content."
                     ),
+                    reason="damaged_sidecar",
                 )
     except LockBusyError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=3, message=str(exc))
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=3,
+            message=str(exc),
+            reason="write_lock_busy",
+        )
     except ConfigContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        message = f"Filesystem error: {exc}"
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            reason="damaged_sidecar",
+        )
 
     payload = {
         "project_root": str(workspace.project_root),

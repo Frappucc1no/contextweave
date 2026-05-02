@@ -6,13 +6,17 @@
 
 **为跨智能体、跨会话、跨模型持续推进的项目准备的连续性层。**
 
-[![Version](https://img.shields.io/badge/version-v0.3.3-111827)](./skills/recallloom/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.3.4-6b7280)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
 [English](./README.md) · **简体中文**
 
 </div>
+
+<p align="center">
+  <img src="./docs/images/readme-topbanner.zh-CN.png" alt="RecallLoom 顶部主视觉" />
+</p>
 
 如果你每次切到新的 `Claude Code`、`Codex`、`Gemini CLI` 或新的智能体，都要先花十分钟重新解释项目，那你真正缺的通常不是更聪明的模型，而是一层不会丢的 **项目连续性**。
 
@@ -34,6 +38,10 @@ RecallLoom 把项目为什么存在、现在什么是真的、最近推进到哪
 
 RecallLoom 做的事情很克制：它不试图凭空理解一切，而是把你已经沉淀出来、而且确实值得长期保留的项目现实留在工作区里。
 
+<p align="center">
+  <img src="./docs/images/readme-design-logic.zh-CN.png" alt="项目现实如何留在工作区" />
+</p>
+
 ## 🧭 它怎么工作
 
 RecallLoom 在项目里保留的是一套小而清楚的连续性结构。它不把所有历史堆成一团，而是把最该长期保留的项目现实拆成 4 个部分：
@@ -43,16 +51,22 @@ RecallLoom 在项目里保留的是一套小而清楚的连续性结构。它不
 - **关键进展**：最近真正发生了什么，哪些决定值得回看。
 - **规则与边界**：哪些地方要谨慎读，哪些地方不能随便改。
 
-新会话不需要先吞下全部历史。先恢复这 4 层项目现实，再决定下一步怎么接上。第一次接入也不该靠一个静默黑盒把项目“自动总结完”；更稳妥的方式，是先把这 4 层项目现实恢复出来，再继续推进。
+新会话不需要先吞下全部历史。先恢复这 4 层项目现实，再决定下一步怎么接上。首次接入也不是把项目交给静默黑盒“自动总结完”；更稳妥的路径，是先恢复这 4 层项目现实，再继续推进。
+
+在初始化、恢复和写入时，RecallLoom 会优先确认 sidecar、运行环境和当前状态是否可信；只有需要沉淀长期事实时，才通过带有修订检查和新鲜度提示的辅助脚本更新连续性文件。
+
+<p align="center">
+  <img src="./docs/images/readme-continuity-architecture-map.zh-CN.png" alt="RecallLoom 连续性结构图" />
+</p>
 
 <a id="fit"></a>
-## 🎯 谁会立刻觉得它值
+## 🎯 谁最适合使用
 
-下面这些人，通常最先觉得 RecallLoom 值：
+最容易立刻感受到价值的是：
 
 - **已经习惯让 AI 参与真实项目的人**：尤其是个人开发者和超小团队，会反复把同一个项目交给不同会话、不同模型、不同智能体继续推进。
 - **经常在 `Claude Code`、`Codex`、`Gemini CLI` 等工具之间切换的人**：不想每换一次工具就重讲一遍项目。
-- **研究写作、产品文档、软件项目协调**：这些工作都特别依赖 why、决策、进展和下一步不要漂掉。
+- **研究写作、产品文档、软件项目协调**：这些工作都特别依赖项目缘由、决策、进展和下一步不要漂掉。
 
 典型高价值场景也很集中：
 
@@ -60,12 +74,12 @@ RecallLoom 在项目里保留的是一套小而清楚的连续性结构。它不
 - **跨模型或跨智能体接力**：今天用 Claude，明天换 Codex、Gemini CLI 或另一个智能体，项目状态不会跟着丢。
 - **长期研究 / PRD / 软件协调**：最怕“当前真相”和“历史脉络”被冲散的工作。
 
-如果你只是一次性问答、临时聊天，或者根本不会回到同一个项目，RecallLoom 对你的价值就不会那么强。
+如果你只是一次性问答、临时聊天，或者根本不会回到同一个项目，RecallLoom 带来的收益会有限。
 
 <a id="modes"></a>
 ## 🧩 内置场景模式
 
-RecallLoom 内置了 4 种场景模式，对应 4 类常见项目形态。研究写作、产品文档、软件协调这类特征明确的项目，会进入对应模式；混合型项目或边界还不够清楚的项目，先用通用模式。
+RecallLoom 内置了 4 种场景模式，对应 4 类常见项目形态。研究写作、产品文档、软件协调这类特征明确的项目，会进入对应模式；混合型项目或边界还不够清楚的项目，会先落在通用模式。
 
 | 模式 | 最适合什么项目 | 它主要帮你稳住什么 |
 |---|---|---|
@@ -137,17 +151,23 @@ PROJECT_ROOT/
 3. 如果项目还没接入，就确认初始化；在支持稳定动作名的宿主里，也可以直接输入 `rl-init`
 4. 然后正常推进项目
 
-### 第一步：安装
+### 第一步：安装技能包
 
-#### 方式 A：最快试用
+#### 方式 A：使用 Skills CLI
 
-如果你的环境支持 [skills.sh](https://skills.sh/docs/cli) 这类开放 Skills CLI，可以直接安装：
+如果你的环境支持 [skills.sh](https://skills.sh/docs/cli) 这类 Skills CLI，可以直接从仓库安装：
 
 ```bash
 npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
 ```
 
-#### 方式 B：接入现有 AI 工具并长期使用
+之后需要更新已安装技能时，使用：
+
+```bash
+npx skills update
+```
+
+#### 方式 B：目录式安装
 
 如果当前工具支持目录式技能包，就把整个包目录接入对应的技能目录：
 
@@ -190,11 +210,11 @@ ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/reca
 | `从上次停下的地方继续` | 跨会话回来继续同一项工作时 |
 | `记录今天的关键进展` | 想把重要进展沉淀进连续性文件时 |
 
-一旦项目已经初始化，像“继续这个项目”或“先帮我恢复项目上下文”这类请求，就应该先回到 RecallLoom，而不是先做更宽的技能扇出。只有在 sidecar 缺失、冲突、明显不足以支持当前任务，或你明确要求更深一层审查时，宿主 / router 才应该扩大探索范围。
+项目初始化后，下次回来时可以直接说“继续这个项目”“先帮我恢复项目上下文”或“从上次停下的地方继续”。RecallLoom 会先读取已有连续性文件，恢复背景、当前状态和下一步；只有在连续性文件缺失、冲突、明显不足，或你明确要求更深入审查时，才需要扩大到更完整的项目检查。
 
-如果宿主支持稳定动作名，`rl-resume` 就是这条已初始化项目恢复路径唯一的恢复动作名。
+如果你的工具支持稳定动作名，也可以用 `rl-resume` 明确触发恢复；多数时候，直接用自然语言说明要继续项目就够了。
 
-如需更偏操作员视角的命令入口和 helper 操作流，见 [USAGE.md](./USAGE.md)。
+如果想了解更偏操作员视角的命令入口和 helper 操作流，见 [USAGE.md](./USAGE.md)。
 
 ## 📦 技能包结构
 
@@ -231,11 +251,91 @@ recallloom/
 ### 版本信息
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- 包版本：`0.3.3`
+- 包版本：`0.3.4`
 - 协议版本：`1.0`
 - 当前支持的协议版本：
   - `1.0`
 <!-- RecallLoom metadata sync end: package-metadata -->
+
+### 更新记录
+
+<details>
+  <summary><strong>v0.3.4</strong></summary>
+
+- 提升跨天继续体验：未收尾的活跃工作可以更自然地延续到下一次会话，读侧状态说明也更一致。
+- 拆清信任与失败信号：结构可信度、内容新鲜度、漂移风险、工作日状态和包支持状态分开呈现，避免用一个模糊信号覆盖所有情况。
+- 增加轻量包支持检查：已安装包可按日读取支持建议；需要升级时，高风险动作会明确阻断，普通网络失败不会直接中断正常工作。
+- 强化分层写入判断：更清楚地区分哪些内容适合进入项目背景、当前状态、日进展或不应写入，并保留“暂缓、确认后写入、拆分到多层”等安全判断。
+- 加固时间一致性：未来日期、跨日延续和手动指定日期进入同一套审查规则，降低错误时间线污染连续性文件的风险。
+
+</details>
+
+<details>
+  <summary><strong>v0.3.3</strong></summary>
+
+- 收紧首次初始化边界：初始化必须走标准辅助流程；环境缺失时明确报告阻塞，不鼓励手工拼出连续性文件。
+- 已初始化项目的恢复路径更稳：继续 / 恢复类请求优先读取已有连续性文件，减少不必要的宽泛探索。
+- 降低普通用户交互里的术语负担，并补齐中文入口与跨工具入口文档的稳定性。
+- 改善连续性写回体验，减少需要用户处理临时中转文本的情况。
+
+</details>
+
+<details>
+  <summary><strong>v0.3.2</strong></summary>
+
+- 引入可信冷启动：已有项目首次接入时先生成可审阅的项目现实提案，而不是直接把空模板当成完成态。
+- 推进协议事实单源化：用 registry、schema 和文档同步检查降低代码、协议和说明之间的漂移。
+- 拆清核心模块边界：把协议、工作区运行时、新鲜度、桥接安全等能力从单一大模块里分离出来。
+- 补齐中文查询、路径识别、wrapper 路径和首用可信度等公开可用性缺口。
+
+</details>
+
+<details>
+  <summary><strong>v0.3.1</strong></summary>
+
+- 固定 `rl-init` 作为首次接入的标准动作，把初始化、校验和下一步建议收成一个入口。
+- 新增统一 dispatcher，让 agent 和操作员不必记住多个底层脚本。
+- 增加可选原生命令包装模板，方便在支持宿主中承接同一套动作语义。
+- README、USAGE、SKILL 和适配说明从“脚本说明”转向“技能包接入流程”。
+
+</details>
+
+<details>
+  <summary><strong>v0.3.0</strong></summary>
+
+- 新增只读连续性查询能力，支持按问题召回项目背景、当前状态、引用依据、新鲜度和冲突提示。
+- 统一状态检查、预检和查询路径的读侧基线，让新会话更容易从同一套项目现实开始。
+- 修复项目本地规则文件的安全提交路径，并建立最小自动化测试底座。
+- 增加连续性文本附着前的安全扫描，降低桥接文本带来的误导风险。
+
+</details>
+
+<details>
+  <summary><strong>v0.2.2</strong></summary>
+
+- 完成从早期 ContextWeave 命名到 RecallLoom 的公开品牌切换。
+- 将可安装技能包迁移到 `skills/recallloom/`，并让公开 README、元数据和安装路径对齐。
+- 将默认连续性路径切到 `.recallloom/`，使产品名称、包路径和运行时表面保持一致。
+
+</details>
+
+<details>
+  <summary><strong>0.2.1</strong></summary>
+
+- 强化早期公开 README、中文 README 和安装说明。
+- 增加通用项目连续性模式，让混合型长期项目不必被过早归入研究、产品或软件单一形态。
+- 补充早期视觉资产和更清晰的项目适配说明。
+
+</details>
+
+<details>
+  <summary><strong>0.1.0</strong></summary>
+
+- 建立最早的文件原生连续性包：项目背景、当前状态、日进展、配置状态和本地规则文件。
+- 提供初始化、校验、预检、桥接、归档、写锁和修订感知写入等基础辅助脚本。
+- 固定协议 `1.0` 的早期文件模型与 Python `3.10+` 运行前提。
+
+</details>
 
 ### 运行前提
 
@@ -258,7 +358,7 @@ recallloom/
 
 | 环境 | 推荐接法 | 最适合什么时候 |
 |---|---|---|
-| Skills CLI 生态 | `npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom` | 想最快开始试的人 |
+| Skills CLI 生态 | 使用 `npx skills add ... --skill recallloom` 安装；用 `npx skills update` 更新 | 想用统一的技能安装与更新流程时 |
 | Codex | 接入 `.agents/skills/recallloom` | 想在仓库内做项目级长期协作 |
 | Claude Code | 接入 `~/.claude/skills/recallloom` 或 `.claude/skills/recallloom` | 想做用户级或项目级安装 |
 | 其他目录式工具 | 把整个目录接入该工具的技能文件夹 | 想跨工具复用同一套连续性文件 |
@@ -280,22 +380,12 @@ recallloom/
 
 <details>
   <summary><strong>它会一直在后台静默运行吗？</strong></summary>
-  <p>不是后台常驻服务。它更适合在关键节点介入，例如“继续这个项目”“恢复项目上下文”“记录今天的关键进展”。这不意味着你要全天候手动管理它，而是说在准备交接、结束一天工作、或刚完成关键决策时，让它介入会特别有价值。</p>
+  <p>不是后台常驻服务。它更适合在关键节点介入，例如“继续这个项目”“恢复项目上下文”“记录今天的关键进展”。准备交接、结束一天工作、或刚完成关键决策时，让它介入会特别有价值。</p>
 </details>
 
 <details>
   <summary><strong>我可以把它接到一个已经在推进中的项目里吗？</strong></summary>
   <p>可以，而且很多人第一次用它，就是在一个已经在推进中的项目里。把稳定背景、当前状态和关键进展补进去，后续会话就更容易继续。</p>
-</details>
-
-<details>
-  <summary><strong>如果我已经在用更早的 0.3.x，升级到 0.3.3 需要迁移已有项目吗？</strong></summary>
-  <p>正常情况下不需要。`0.3.3` 仍然使用同一条 `protocol 1.0` 兼容线，已有项目通常直接更新包后继续使用即可。需要注意的是，如果旧项目本身已经存在 damaged sidecar 或 hidden / visible sidecar 冲突，`0.3.3` 会更明确地把这些问题报出来，而不是继续猜测。</p>
-</details>
-
-<details>
-  <summary><strong>升级到 0.3.3 之后，需要重新安装 native commands 吗？</strong></summary>
-  <p>只有在你想拿到新的 `rl-resume` 原生命令 wrapper 时才需要。RecallLoom 本体更新后就能继续使用；但如果你在支持的宿主里也想直接用 `rl-resume`，更新后最好重新运行一次 `install_native_commands.py`。</p>
 </details>
 
 <details>
@@ -309,16 +399,11 @@ recallloom/
 </details>
 
 <details>
-  <summary><strong>我必须绑定某个 AI 工具吗？</strong></summary>
-  <p>不需要绑定单一平台。RecallLoom 的核心是文件原生连续性；当前最直接支持的桥接入口包括 `AGENTS.md`、`CLAUDE.md`、`GEMINI.md` 和 `.github/copilot-instructions.md`，因此它更适合被接进可读技能包和项目文件的工具，而不是被锁在某一个平台的私有记忆里。</p>
-</details>
-
-<details>
   <summary><strong>为什么要用 sidecar，而不是直接写进项目正文里？</strong></summary>
   <p>因为这是一个故意的设计选择。sidecar 能把连续性状态留在项目旁边，又尽量不污染你原本的代码、文档和目录结构。这样它既能跟着项目走，又不会强行侵入项目主体。</p>
 </details>
 
-如果这个项目对你有帮助，欢迎点一个 Star，也欢迎把它转给更多有类似需求的佬友。
+如果这个项目对你有帮助，欢迎点一个 Star，也欢迎把它转给更多有类似需求的人。
 
 ## 🙏 致谢
 
@@ -330,6 +415,7 @@ recallloom/
 - [USAGE.md](./USAGE.md)
 - [profiles/](./skills/recallloom/profiles/)
 - [file-contracts.md](./skills/recallloom/references/file-contracts.md)
+- [package-support-policy.md](./skills/recallloom/references/package-support-policy.md)
 - [protocol.md](./skills/recallloom/references/protocol.md)
 
 ## 📄 开源协议

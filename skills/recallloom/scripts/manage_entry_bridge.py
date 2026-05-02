@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 
@@ -21,6 +22,9 @@ from _common import (
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
     EnvironmentContractError,
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
+    enforce_package_support_gate,
     exit_with_cli_error,
     atomic_write_if_unchanged,
     LockBusyError,
@@ -139,42 +143,92 @@ def missing_continuity_files(workspace) -> list[Path]:
     return issues
 
 
+def bridge_state_matches_observed_state(
+    current_state: dict | None,
+    *,
+    update_protocol_revision_seen: int,
+    latest_daily_log_seen: str | None,
+) -> bool:
+    if not isinstance(current_state, dict):
+        return False
+    return (
+        current_state.get("update_protocol_revision_seen") == update_protocol_revision_seen
+        and current_state.get("latest_daily_log_seen") == latest_daily_log_seen
+    )
+
+
+def refreshed_bridge_updated_at(previous_updated_at: str | None) -> str:
+    updated_at = now_iso_timestamp()
+    if updated_at != previous_updated_at:
+        return updated_at
+    return datetime.now().astimezone().isoformat(timespec="microseconds")
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
-
-    try:
-        workspace = find_recallloom_root(args.path)
-    except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
-    if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
-
-    try:
-        targets = resolve_targets(workspace.project_root, args.file)
-    except ValueError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
-    if not targets:
-        exit_with_cli_error(
-            parser,
-            json_mode=args.json,
-            exit_code=1,
-            message="No eligible entry files found. Use --file to specify a target.",
-        )
-
-    if len(targets) > 1:
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=(
-                "v1 bridge operations accept exactly one target per invocation. "
-                "Re-run with a single explicit --file argument."
-            ),
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
+
+    try:
+        workspace = find_recallloom_root(args.path)
+    except (StorageResolutionError, ConfigContractError) as exc:
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
+    if workspace is None:
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            payload=cli_failure_payload("no_project_root", error="No RecallLoom project root found."),
+        )
+
+    try:
+        targets = resolve_targets(workspace.project_root, args.file)
+    except ValueError as exc:
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("invalid_prepared_input", error=str(exc)),
+        )
+    if not targets:
+        message = "No eligible entry files found. Use --file to specify a target."
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message=message,
+            payload=cli_failure_payload("invalid_prepared_input", error=message),
+        )
+
+    if len(targets) > 1:
+        message = (
+            "v1 bridge operations accept exactly one target per invocation. "
+            "Re-run with a single explicit --file argument."
+        )
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("invalid_prepared_input", error=message),
         )
 
     try:
@@ -188,37 +242,48 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=str(exc),
+                    payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
                 )
 
             results = []
             for target in targets:
                 if not target.is_file():
+                    message = f"Target entry file does not exist: {target}"
                     exit_with_cli_error(
                         parser,
                         json_mode=args.json,
                         exit_code=2,
-                        message=f"Target entry file does not exist: {target}",
+                        message=message,
+                        payload=cli_failure_payload("invalid_prepared_input", error=message),
                     )
 
                 current_text = read_text(target)
                 ok, reason = bridge_block_integrity(current_text)
                 if not ok:
+                    message = bridge_integrity_message(reason, target)
                     exit_with_cli_error(
                         parser,
                         json_mode=args.json,
                         exit_code=3,
-                        message=bridge_integrity_message(reason, target),
+                        message=message,
+                        payload=cli_failure_payload("malformed_managed_file", error=message),
                     )
 
                 missing = missing_continuity_files(workspace)
                 if missing:
+                    message = (
+                        "Refusing to modify entry files because required continuity files are missing:\n"
+                        + "\n".join(str(path) for path in missing)
+                    )
                     exit_with_cli_error(
                         parser,
                         json_mode=args.json,
                         exit_code=2,
-                        message=(
-                            "Refusing to modify entry files because required continuity files are missing:\n"
-                            + "\n".join(str(path) for path in missing)
+                        message=message,
+                        payload=cli_failure_payload(
+                            "malformed_managed_file",
+                            error=message,
+                            details={"missing_paths": [str(path) for path in missing]},
                         ),
                     )
 
@@ -231,19 +296,29 @@ def main() -> None:
                     scan_result = scan_auto_attached_context_text(updated_text)
                     scan_result = {**scan_result, "scope": "full_file"}
                     if scan_result["blocked"]:
+                        message = (
+                            "Refusing to attach continuity text because the updated entry file "
+                            "failed the attached-text safety scan: "
+                            + ", ".join(scan_result["hard_block_reasons"])
+                        )
                         exit_with_cli_error(
                             parser,
                             json_mode=args.json,
                             exit_code=2,
-                            message=(
-                                "Refusing to attach continuity text because the updated entry file "
-                                "failed the attached-text safety scan: "
-                                + ", ".join(scan_result["hard_block_reasons"])
+                            message=message,
+                            payload=cli_failure_payload(
+                                "attach_scan_blocked",
+                                error=message,
+                                details={
+                                    "hard_block_reasons": scan_result["hard_block_reasons"],
+                                    "scope": scan_result["scope"],
+                                    "target": str(target),
+                                },
                             ),
                         )
                     changed = updated_text != current_text
 
-                rel_target = str(target.relative_to(workspace.project_root))
+                rel_target = target.relative_to(workspace.project_root).as_posix()
                 state_changed = False
                 if args.remove:
                     if rel_target in state["bridged_entries"]:
@@ -251,16 +326,35 @@ def main() -> None:
                         state_changed = True
                 else:
                     latest_daily_log = latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME)
-                    next_bridge_state = {
-                        "update_protocol_revision_seen": state["update_protocol_revision"],
-                        "latest_daily_log_seen": (
-                            str(latest_daily_log.relative_to(workspace.storage_root))
-                            if latest_daily_log is not None
-                            else None
-                        ),
-                        "updated_at": now_iso_timestamp(),
-                    }
-                    if state["bridged_entries"].get(rel_target) != next_bridge_state:
+                    latest_daily_log_seen = (
+                        latest_daily_log.relative_to(workspace.storage_root).as_posix()
+                        if latest_daily_log is not None
+                        else None
+                    )
+                    current_bridge_state = state["bridged_entries"].get(rel_target)
+                    current_updated_at = (
+                        current_bridge_state.get("updated_at")
+                        if isinstance(current_bridge_state, dict)
+                        else None
+                    )
+                    should_refresh_bridge_state = (
+                        changed
+                        or not bridge_state_matches_observed_state(
+                            current_bridge_state,
+                            update_protocol_revision_seen=state["update_protocol_revision"],
+                            latest_daily_log_seen=latest_daily_log_seen,
+                        )
+                        or not isinstance(current_updated_at, str)
+                        or not current_updated_at.strip()
+                    )
+                    next_bridge_state = None
+                    if should_refresh_bridge_state:
+                        next_bridge_state = {
+                            "update_protocol_revision_seen": state["update_protocol_revision"],
+                            "latest_daily_log_seen": latest_daily_log_seen,
+                            "updated_at": refreshed_bridge_updated_at(current_updated_at),
+                        }
+                    if next_bridge_state is not None and current_bridge_state != next_bridge_state:
                         state["bridged_entries"][rel_target] = next_bridge_state
                         state_changed = True
 
@@ -269,46 +363,55 @@ def main() -> None:
                         try:
                             atomic_write_if_unchanged(target, expected_text=current_text, new_text=updated_text)
                         except OSError as exc:
+                            message = f"Filesystem error while writing {target}: {exc}"
                             exit_with_cli_error(
                                 parser,
                                 json_mode=args.json,
                                 exit_code=2,
-                                message=f"Filesystem error while writing {target}: {exc}",
+                                message=message,
+                                payload=cli_failure_payload("damaged_sidecar", error=message),
                             )
-                    try:
-                        dump_json(state_path, state)
-                    except OSError as exc:
-                        if changed:
-                            try:
-                                restore_text_snapshot(target, existed=True, text=current_text)
-                            except OSError as rollback_exc:
+                    if state_changed:
+                        try:
+                            dump_json(state_path, state)
+                        except OSError as exc:
+                            if changed:
+                                try:
+                                    restore_text_snapshot(target, existed=True, text=current_text)
+                                except OSError as rollback_exc:
+                                    message = (
+                                        f"Failed to update state after writing {target}: {exc}. "
+                                        f"Rollback also failed: {rollback_exc}. Workspace may be partially updated."
+                                    )
+                                    exit_with_cli_error(
+                                        parser,
+                                        json_mode=args.json,
+                                        exit_code=2,
+                                        message=message,
+                                        payload=cli_failure_payload("damaged_sidecar", error=message),
+                                    )
+                                message = (
+                                    f"Failed to update state after writing {target}: {exc}. "
+                                    "The target file was restored to its previous content."
+                                )
                                 exit_with_cli_error(
                                     parser,
                                     json_mode=args.json,
                                     exit_code=2,
-                                    message=(
-                                        f"Failed to update state after writing {target}: {exc}. "
-                                        f"Rollback also failed: {rollback_exc}. Workspace may be partially updated."
-                                    ),
+                                    message=message,
+                                    payload=cli_failure_payload("damaged_sidecar", error=message),
                                 )
+                            message = (
+                                f"Failed to update bridge state for {target}: {exc}. "
+                                "No file content was changed."
+                            )
                             exit_with_cli_error(
                                 parser,
                                 json_mode=args.json,
                                 exit_code=2,
-                                message=(
-                                    f"Failed to update state after writing {target}: {exc}. "
-                                    "The target file was restored to its previous content."
-                                ),
+                                message=message,
+                                payload=cli_failure_payload("damaged_sidecar", error=message),
                             )
-                        exit_with_cli_error(
-                            parser,
-                            json_mode=args.json,
-                            exit_code=2,
-                            message=(
-                                f"Failed to update bridge state for {target}: {exc}. "
-                                "No file content was changed."
-                            ),
-                        )
 
                 results.append(
                     {
@@ -321,9 +424,22 @@ def main() -> None:
                     }
                 )
     except LockBusyError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=3, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=3,
+            message=str(exc),
+            payload=cli_failure_payload("write_lock_busy", error=str(exc)),
+        )
     except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        message = f"Filesystem error: {exc}"
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("damaged_sidecar", error=message),
+        )
 
     payload = {
         "project_root": str(workspace.project_root),
@@ -338,7 +454,20 @@ def main() -> None:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
         for result in results:
-            state = "would change" if not args.yes and result["changed"] else "changed" if result["applied"] else "no change"
+            if not args.yes:
+                if result["changed"]:
+                    state = "would change"
+                elif result["state_changed"]:
+                    state = "would update state"
+                else:
+                    state = "no change"
+            else:
+                if result["changed"]:
+                    state = "changed"
+                elif result["state_changed"]:
+                    state = "updated state"
+                else:
+                    state = "no change"
             print(f"{result['target']}: {state}")
 
 

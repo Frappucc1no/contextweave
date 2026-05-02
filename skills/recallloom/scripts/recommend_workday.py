@@ -5,21 +5,120 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import datetime, timedelta
-from pathlib import Path
+import os
+import sys
+from datetime import datetime
+
+
+_BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION = "3.10"
+
+
+def _bootstrap_failure_language() -> str:
+    lang = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or ""
+    return "zh-CN" if lang.lower().startswith("zh") else "en"
+
+
+def _bootstrap_minimum_python_version() -> tuple[tuple[int, ...], str]:
+    from pathlib import Path
+
+    fallback_parts = tuple(int(part) for part in _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION.split("."))
+    metadata_path = Path(__file__).resolve().parent.parent / "package-metadata.json"
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        raw = _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION
+    else:
+        raw = payload.get("minimum_python_version", _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION)
+        if not isinstance(raw, str) or not raw.strip():
+            raw = _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION
+    parts = raw.strip().split(".")
+    if not parts or any(not part.isdigit() for part in parts):
+        return fallback_parts, _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION
+    normalized = tuple(int(part) for part in parts)
+    return normalized, ".".join(str(part) for part in normalized)
+
+
+def _bootstrap_runtime_contract(minimum_text: str) -> dict:
+    return {
+        "blocked": True,
+        "blocked_reason": "python_runtime_unavailable",
+        "recoverability": "retryable",
+        "surface_level": "user_safe",
+        "trust_effect": "none",
+        "next_actions": ["find_compatible_python", "report_blocked_runtime"],
+        "user_message": {
+            "en": (
+                "RecallLoom cannot start yet because this environment does not provide "
+                f"Python {minimum_text} or newer."
+            ),
+            "zh-CN": f"当前环境还不能启动 RecallLoom，因为这里没有可用的 Python {minimum_text}+ 运行时。",
+        },
+        "operator_note": {
+            "en": f"Find or point the host at a compatible Python {minimum_text}+ interpreter before retrying.",
+            "zh-CN": f"请先找到或指定兼容的 Python {minimum_text}+ 解释器，再重试。",
+        },
+    }
+
+
+def _bootstrap_runtime_payload(message: str, minimum_text: str) -> dict:
+    language = _bootstrap_failure_language()
+    contract = _bootstrap_runtime_contract(minimum_text)
+    return {
+        "ok": False,
+        "blocked": contract["blocked"],
+        "blocked_reason": contract["blocked_reason"],
+        "recoverability": contract["recoverability"],
+        "surface_level": contract["surface_level"],
+        "trust_effect": contract["trust_effect"],
+        "next_actions": list(contract["next_actions"]),
+        "user_message": contract["user_message"][language],
+        "operator_note": contract["operator_note"][language],
+        "error": message,
+    }
+
+
+def _exit_if_runtime_unsupported() -> None:
+    minimum_parts, minimum_text = _bootstrap_minimum_python_version()
+    current = sys.version_info[: len(minimum_parts)]
+    if current >= minimum_parts:
+        return
+    message = (
+        "RecallLoom helper scripts require "
+        f"Python {minimum_text}+; current interpreter is "
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
+    if "--json" in sys.argv[1:]:
+        print(json.dumps(_bootstrap_runtime_payload(message, minimum_text), ensure_ascii=False, indent=2))
+    else:
+        print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+
+_exit_if_runtime_unsupported()
+
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from core.continuity.freshness import (
     is_effectively_empty_summary_next_step as shared_is_effectively_empty_summary_next_step,
 )
+from core.continuity.workday import (
+    RECOMMENDATION_TYPES,
+    build_workday_decision,
+    describe_workday_guidance,
+    detect_closure_signal,
+)
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
     detect_update_protocol_time_policy_cues,
     EnvironmentContractError,
+    enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
+    exit_with_failure_contract,
     extract_section_text,
     FILE_KEYS,
     find_recallloom_root,
@@ -31,29 +130,6 @@ from _common import (
     parse_iso_date,
     read_text,
     StorageResolutionError,
-)
-
-
-RECOMMENDATION_TYPES = {
-    "continue_active_day",
-    "start_new_active_day",
-    "close_previous_day_then_start_new_day",
-    "backfill_previous_day_closure",
-    "log_not_needed_for_this_session",
-    "review_date_before_append",
-}
-
-CLOSURE_KEYWORDS = (
-    "end-of-day",
-    "end of day",
-    "day closed",
-    "close day",
-    "closure recorded",
-    "wrapped for the day",
-    "收工",
-    "收尾",
-    "结束今天",
-    "今日收尾",
 )
 
 
@@ -127,14 +203,9 @@ def resolve_now(now_raw: str | None, timezone_name: str | None) -> tuple[datetim
     zone_label = timezone_name or str(now.tzinfo)
     return now, zone_label
 
+
 def is_effectively_empty_summary_next_step(text: str) -> bool:
     return shared_is_effectively_empty_summary_next_step(text)
-
-
-def detect_closure_signal(daily_log_text: str) -> tuple[bool, list[str]]:
-    lowered = daily_log_text.lower()
-    matches = [keyword for keyword in CLOSURE_KEYWORDS if keyword in lowered]
-    return (len(matches) > 0, matches)
 
 
 def main() -> None:
@@ -143,90 +214,128 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
-
-    if not 0 <= args.rollover_hour <= 23:
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
+
+    if not 0 <= args.rollover_hour <= 23:
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
             message=f"Invalid --rollover-hour value: {args.rollover_hour}. Expected 0..23.",
+            reason="invalid_prepared_input",
         )
     preferred_date = None
     if args.preferred_date:
         try:
             preferred_date = parse_iso_date(args.preferred_date)
         except ValueError:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Invalid --preferred-date value: {args.preferred_date}",
+                reason="invalid_date",
+                details={"preferred_date": args.preferred_date},
             )
 
     try:
         now, zone_label = resolve_now(args.now, args.timezone)
     except ValueError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            reason="invalid_prepared_input",
+        )
 
     try:
         workspace = find_recallloom_root(args.path)
     except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            reason="no_project_root",
+        )
 
     try:
         logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
         invalid_daily_logs = invalid_iso_like_daily_log_files(logs_dir)
         if invalid_daily_logs:
-            exit_with_cli_error(
+            invalid_paths = [str(path) for path in invalid_daily_logs]
+            exit_with_failure_contract(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
                 message=(
                     "Refusing recommend_workday because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
-                    + "\n".join(str(path) for path in invalid_daily_logs)
+                    + "\n".join(invalid_paths)
                 ),
+                reason="malformed_managed_file",
+                details={"invalid_paths": invalid_paths},
             )
         load_workspace_state(workspace.storage_root / FILE_KEYS["state"])
 
         latest_daily_log = latest_active_daily_log(logs_dir)
         latest_active_day = parse_iso_date(latest_daily_log.stem) if latest_daily_log is not None else None
-        logical_workday = now.date() if now.hour >= args.rollover_hour else (now.date() - timedelta(days=1))
         update_protocol_path = workspace.storage_root / FILE_KEYS["update_protocol"]
         if not update_protocol_path.is_file():
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Missing required file: {update_protocol_path}",
+                reason="malformed_managed_file",
+                details={"path": str(update_protocol_path)},
             )
         update_protocol_text = read_text(update_protocol_path)
-        if update_protocol_path.is_file() and parse_file_state_marker(update_protocol_text) is None:
-            exit_with_cli_error(
+        if parse_file_state_marker(update_protocol_text) is None:
+            exit_with_failure_contract(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Missing required file-state metadata marker: {update_protocol_path}",
+                reason="malformed_managed_file",
+                details={"path": str(update_protocol_path)},
             )
         project_time_policy_cues = detect_update_protocol_time_policy_cues(update_protocol_text)
 
         summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
         if not summary_path.is_file():
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Missing required file: {summary_path}",
+                reason="malformed_managed_file",
+                details={"path": str(summary_path)},
             )
         summary_text = read_text(summary_path)
         if parse_file_state_marker(summary_text) is None:
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Missing required file-state metadata marker: {summary_path}",
+                reason="malformed_managed_file",
+                details={"path": str(summary_path)},
             )
         next_step_text = extract_section_text(summary_text, "next_step")
         next_step_empty = is_effectively_empty_summary_next_step(next_step_text)
@@ -236,7 +345,7 @@ def main() -> None:
             parse_daily_log_entry_line(line) is not None
             for line in daily_log_text.splitlines()
         ):
-            exit_with_cli_error(
+            exit_with_failure_contract(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
@@ -244,121 +353,84 @@ def main() -> None:
                     "Missing required daily-log-entry metadata marker in the latest ISO-dated daily log: "
                     f"{latest_daily_log}"
                 ),
+                reason="malformed_managed_file",
+                details={"path": str(latest_daily_log)},
             )
         closure_detected, closure_keywords = detect_closure_signal(daily_log_text)
     except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        message = f"Filesystem error: {exc}"
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            reason="damaged_sidecar",
+        )
     except ConfigContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
-
-    recommendation = "log_not_needed_for_this_session"
-    suggested_date = logical_workday.isoformat()
-    reasoning: list[str] = []
-
-    if latest_active_day is None:
-        recommendation = "start_new_active_day"
-        reasoning.append("No active daily log exists yet.")
-    elif latest_active_day == logical_workday:
-        recommendation = "continue_active_day"
-        suggested_date = latest_active_day.isoformat()
-        reasoning.append("Latest active day matches the current logical workday.")
-    else:
-        suggested_date = logical_workday.isoformat()
-        if closure_detected:
-            recommendation = "start_new_active_day"
-            reasoning.append("Latest active day appears closed based on closure language in the daily log.")
-        elif not next_step_empty:
-            recommendation = "close_previous_day_then_start_new_day"
-            reasoning.append("Latest active day is behind the current logical workday and the summary still has an unfinished next step.")
-        else:
-            recommendation = "backfill_previous_day_closure"
-            reasoning.append("Latest active day is behind, but no unfinished next step is visible in the rolling summary.")
-
-    if recommendation not in RECOMMENDATION_TYPES:
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
+
+    decision = build_workday_decision(
+        now=now,
+        rollover_hour=args.rollover_hour,
+        latest_active_day=latest_active_day,
+        closure_detected=closure_detected,
+        summary_next_step_is_empty=next_step_empty,
+        preferred_date=preferred_date,
+        session_intent=args.session_intent,
+        project_time_policy_cues=project_time_policy_cues,
+        host_explicit=args.timezone is not None or args.rollover_hour != 3,
+    )
+
+    recommendation = decision["recommendation_type"]
+    if recommendation not in RECOMMENDATION_TYPES:
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
             message=f"Internal error: unsupported recommendation type '{recommendation}'.",
+            reason="damaged_sidecar",
         )
-
-    heuristic_recommendation = recommendation
-    heuristic_suggested_date = suggested_date
-    date_resolution_source = "heuristic_default"
-    host_explicit = args.timezone is not None or args.rollover_hour != 3
-    date_sensitive = latest_active_day is None or latest_active_day != logical_workday
-
-    if args.session_intent is not None:
-        recommendation = args.session_intent
-        reasoning.append(
-            f"Using the explicit session intent {args.session_intent} instead of the heuristic recommendation {heuristic_recommendation}."
-        )
-        if args.session_intent == "continue_active_day" and latest_active_day is not None:
-            suggested_date = latest_active_day.isoformat()
-        elif args.session_intent == "backfill_previous_day_closure" and latest_active_day is not None:
-            suggested_date = latest_active_day.isoformat()
-        elif args.session_intent in {"start_new_active_day", "close_previous_day_then_start_new_day"}:
-            suggested_date = logical_workday.isoformat()
-        date_resolution_source = "user_explicit"
-
-    if preferred_date is not None:
-        preferred_date_iso = preferred_date.isoformat()
-        date_resolution_source = "user_explicit"
-        if preferred_date_iso != heuristic_suggested_date:
-            recommendation = "review_date_before_append"
-            reasoning.append(
-                "Using the explicit preferred date "
-                f"{preferred_date_iso} instead of the heuristic suggestion {heuristic_suggested_date}."
-            )
-        else:
-            reasoning.append(
-                f"Explicit preferred date {preferred_date_iso} matches the heuristic suggestion."
-            )
-        suggested_date = preferred_date_iso
-    elif project_time_policy_cues and date_sensitive:
-        recommendation = "review_date_before_append"
-        date_resolution_source = "project_local_review"
-        reasoning.append(
-            "Project-local time-policy cues were detected in update_protocol.md; review them before applying the heuristic date suggestion."
-        )
-
-    if preferred_date is not None:
-        decision_priority_applied = "user_explicit"
-    elif args.session_intent is not None:
-        decision_priority_applied = "user_explicit"
-    elif project_time_policy_cues and date_sensitive:
-        decision_priority_applied = "project_local_review"
-    elif host_explicit:
-        decision_priority_applied = "host_explicit"
-    else:
-        decision_priority_applied = "host_default"
 
     payload = {
         "project_root": str(workspace.project_root),
         "storage_root": str(workspace.storage_root),
         "timezone": zone_label,
         "now": now.isoformat(),
-        "physical_date": now.date().isoformat(),
+        "physical_date": decision["physical_date"],
         "rollover_hour": args.rollover_hour,
-        "logical_workday": logical_workday.isoformat(),
+        "logical_workday": decision["logical_workday"],
         "latest_active_daily_log": str(latest_daily_log) if latest_daily_log else None,
-        "latest_active_day": latest_active_day.isoformat() if latest_active_day else None,
+        "latest_active_day": decision["latest_active_day"],
+        "gap_days": decision["gap_days"],
         "summary_next_step_empty": next_step_empty,
         "summary_next_step_excerpt": None if next_step_empty else next_step_text,
         "closure_detected": closure_detected,
         "closure_keywords": closure_keywords,
         "session_intent": args.session_intent,
         "preferred_date": preferred_date.isoformat() if preferred_date is not None else None,
-        "date_resolution_source": date_resolution_source,
-        "decision_priority_applied": decision_priority_applied,
+        "date_resolution_source": decision["date_resolution_source"],
+        "decision_priority_applied": decision["decision_priority_applied"],
         "project_time_policy_present": update_protocol_path.is_file(),
         "project_time_policy_cues": project_time_policy_cues,
-        "project_time_policy_review_required": bool(project_time_policy_cues and date_sensitive),
-        "heuristic_recommendation_type": heuristic_recommendation,
-        "heuristic_suggested_date": heuristic_suggested_date,
+        "project_time_policy_review_required": bool(
+            project_time_policy_cues
+            and (latest_active_day is None or latest_active_day.isoformat() != decision["logical_workday"])
+        ),
+        "workday_state": decision["workday_state"],
+        "heuristic_workday_state": decision["heuristic_workday_state"],
+        "heuristic_recommendation_type": decision["heuristic_recommendation_type"],
+        "heuristic_suggested_date": decision["heuristic_suggested_date"],
         "recommendation_type": recommendation,
-        "suggested_date": suggested_date,
-        "reasoning": reasoning,
+        "suggested_date": decision["suggested_date"],
+        "requires_user_confirmation": decision["requires_user_confirmation"],
+        "user_visible_prompt_level": decision["user_visible_prompt_level"],
+        "reasoning": decision["reasoning"],
     }
 
     if args.json:
@@ -368,16 +440,17 @@ def main() -> None:
     print(f"RecallLoom root: {workspace.project_root}")
     print(f"Timezone: {zone_label}")
     print(f"Current time: {now.isoformat()}")
-    print(f"Logical workday: {logical_workday.isoformat()}")
+    print(f"Logical workday: {decision['logical_workday']}")
     print(f"Latest active daily log: {latest_daily_log if latest_daily_log else 'none'}")
     if preferred_date is not None:
         print(f"Preferred date: {preferred_date.isoformat()}")
-    print(f"Date resolution source: {date_resolution_source}")
-    print(f"Recommendation: {recommendation}")
-    print(f"Suggested date: {suggested_date}")
-    if reasoning:
+    print(f"Date resolution source: {decision['date_resolution_source']}")
+    guidance = describe_workday_guidance(decision, always_show=True)
+    if guidance:
+        print(f"Workday guidance: {guidance}")
+    if decision["reasoning"]:
         print("Why:")
-        for item in reasoning:
+        for item in decision["reasoning"]:
             print(f"  - {item}")
 
 

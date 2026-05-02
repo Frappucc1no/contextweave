@@ -4,38 +4,50 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timedelta
 import json
-from pathlib import Path
+from datetime import datetime
 
 from core.continuity.freshness import (
-    continuity_state_for_workspace as shared_continuity_state_for_workspace,
     continuity_digest_bundle,
+    continuity_state_for_workspace as shared_continuity_state_for_workspace,
     evaluate_continuity_freshness,
     freshness_risk_summary,
+    is_effectively_empty_summary_next_step as shared_is_effectively_empty_summary_next_step,
     summary_matches_empty_shell_template as shared_summary_matches_empty_shell_template,
 )
+from core.continuity.workday import (
+    build_workday_decision,
+    build_write_tier_judgment,
+    detect_closure_signal,
+)
+from core.trust.state import evaluate_trust_state
 from core.protocol.contracts import FILE_KEYS
 from core.protocol.markers import parse_file_state_marker
-from core.protocol.sections import extract_section_text
 
 from _common import (
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     EnvironmentContractError,
-    exit_with_cli_error,
+    enforce_package_support_gate,
     ensure_supported_python_version,
+    exit_with_cli_error,
+    find_recallloom_root,
     invalid_iso_like_daily_log_files,
+    latest_active_daily_log,
     load_workspace_state,
+    detect_update_protocol_time_policy_cues,
+    extract_section_text,
     parse_daily_log_entry_line,
+    parse_iso_date,
     read_text,
     StorageResolutionError,
-    find_recallloom_root,
-    latest_active_daily_log,
-    today_iso,
 )
 
+
 DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR = 3
+
 
 def summary_matches_empty_shell_template(summary_text: str) -> bool:
     return shared_summary_matches_empty_shell_template(summary_text)
@@ -52,6 +64,10 @@ def continuity_state_for_workspace(
         summary_text=summary_text,
         latest_daily_log_exists=latest_daily_log_exists,
     )
+
+
+def is_effectively_empty_summary_next_step(text: str) -> bool:
+    return shared_is_effectively_empty_summary_next_step(text)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
     return parser
 
+
 def recommended_actions_for_preflight(
     *,
     continuity_confidence: str,
@@ -115,26 +132,39 @@ def recommended_actions_for_preflight(
     return actions
 
 
-def current_logical_workday_iso(rollover_hour: int = DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR) -> str:
-    now = datetime.now().astimezone()
-    logical_day = now.date() if now.hour >= rollover_hour else (now.date() - timedelta(days=1))
-    return logical_day.isoformat()
-
-
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     try:
         workspace = find_recallloom_root(args.path)
     except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            payload=cli_failure_payload("no_project_root"),
+        )
 
     try:
         summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
@@ -148,6 +178,10 @@ def main() -> None:
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Missing required file: {summary_path}",
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=f"Missing required file: {summary_path}",
+                ),
             )
 
         invalid_daily_logs = invalid_iso_like_daily_log_files(logs_dir)
@@ -160,18 +194,17 @@ def main() -> None:
                     "Refusing preflight because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
                     + "\n".join(str(path) for path in invalid_daily_logs)
                 ),
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=(
+                        "Refusing preflight because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
+                        + "\n".join(str(path) for path in invalid_daily_logs)
+                    ),
+                ),
             )
 
         latest_daily_log = latest_active_daily_log(logs_dir)
-        try:
-            state = load_workspace_state(state_path)
-        except ConfigContractError as exc:
-            exit_with_cli_error(
-                parser,
-                json_mode=args.json,
-                exit_code=2,
-                message=str(exc),
-            )
+        state = load_workspace_state(state_path)
         summary_state = parse_file_state_marker(read_text(summary_path))
         if summary_state is None:
             exit_with_cli_error(
@@ -179,6 +212,10 @@ def main() -> None:
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Missing required file-state metadata marker: {summary_path}",
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=f"Missing required file-state metadata marker: {summary_path}",
+                ),
             )
         context_brief_state = None
         if context_brief_path.is_file():
@@ -189,6 +226,10 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=f"Missing required file-state metadata marker: {context_brief_path}",
+                    payload=cli_failure_payload(
+                        "malformed_managed_file",
+                        error=f"Missing required file-state metadata marker: {context_brief_path}",
+                    ),
                 )
         update_protocol_state = None
         if update_protocol_path.is_file():
@@ -199,7 +240,12 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=f"Missing required file-state metadata marker: {update_protocol_path}",
+                    payload=cli_failure_payload(
+                        "malformed_managed_file",
+                        error=f"Missing required file-state metadata marker: {update_protocol_path}",
+                    ),
                 )
+
         latest_daily_log_entry = None
         if latest_daily_log is not None:
             for line in read_text(latest_daily_log).splitlines():
@@ -215,7 +261,15 @@ def main() -> None:
                         "Missing required daily-log-entry metadata marker in the latest ISO-dated daily log: "
                         f"{latest_daily_log}"
                     ),
+                    payload=cli_failure_payload(
+                        "malformed_managed_file",
+                        error=(
+                            "Missing required daily-log-entry metadata marker in the latest ISO-dated daily log: "
+                            f"{latest_daily_log}"
+                        ),
+                    ),
                 )
+
         workspace_artifact_scan_mode = "full" if args.full else "quick"
         summary_text = read_text(summary_path)
         latest_daily_log_text = read_text(latest_daily_log) if latest_daily_log is not None else ""
@@ -244,6 +298,28 @@ def main() -> None:
                 "latest_relevant_log_digest": None,
                 "suggested_handoff_sections": [],
             }
+
+        latest_active_day = parse_iso_date(latest_daily_log.stem) if latest_daily_log is not None else None
+        closure_detected, closure_keywords = detect_closure_signal(latest_daily_log_text)
+        project_time_policy_cues = (
+            detect_update_protocol_time_policy_cues(read_text(update_protocol_path))
+            if update_protocol_path.is_file()
+            else []
+        )
+        next_step_text = extract_section_text(summary_text, "next_step")
+        next_step_empty = is_effectively_empty_summary_next_step(next_step_text)
+        workday_decision = build_workday_decision(
+            now=datetime.now().astimezone(),
+            rollover_hour=DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR,
+            latest_active_day=latest_active_day,
+            closure_detected=closure_detected,
+            summary_next_step_is_empty=next_step_empty,
+            preferred_date=None,
+            session_intent=None,
+            project_time_policy_cues=project_time_policy_cues,
+            host_explicit=False,
+        )
+
         latest_workspace_artifact = freshness["latest_workspace_artifact"]
         workspace_artifact_scan_performed = freshness["workspace_artifact_scan_performed"]
         workspace_artifact_is_newer = freshness["workspace_artifact_newer_than_summary"]
@@ -266,17 +342,39 @@ def main() -> None:
             latest_daily_log_exists=latest_daily_log is not None,
             workspace_is_newer=workspace_is_newer,
         )
-    except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        trust_state = evaluate_trust_state(
+            continuity_confidence=continuity_confidence,
+            continuity_state=continuity_state,
+            summary_stale=summary_stale,
+            workspace_newer_than_summary=workspace_is_newer,
+            conflict_state=None,
+        )
+    except (OSError, UnicodeDecodeError, ConfigContractError) as exc:
+        message = f"Filesystem/state error: {exc}" if isinstance(exc, ConfigContractError) else f"Filesystem error: {exc}"
+        if isinstance(exc, ConfigContractError):
+            failure_contract = cli_failure_payload(
+                getattr(exc, "failure_reason", None) or "damaged_sidecar",
+                error=message,
+            )
+        else:
+            failure_contract = cli_failure_payload("damaged_sidecar", error=message)
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=failure_contract,
+        )
 
-    recommended_write_targets = [str(summary_path.relative_to(workspace.project_root))]
-    suggested_read_set = [str(summary_path.relative_to(workspace.project_root))]
+    append_date_review_required = workday_decision["recommendation_type"] == "review_date_before_append"
+    recommended_write_targets = [summary_path.relative_to(workspace.project_root).as_posix()]
+    suggested_read_set = [summary_path.relative_to(workspace.project_root).as_posix()]
     conditional_review_targets = []
     if latest_daily_log is not None:
-        suggested_read_set.append(str(latest_daily_log.relative_to(workspace.project_root)))
+        suggested_read_set.append(latest_daily_log.relative_to(workspace.project_root).as_posix())
         conditional_review_targets.append(
             {
-                "path": str(latest_daily_log.relative_to(workspace.project_root)),
+                "path": latest_daily_log.relative_to(workspace.project_root).as_posix(),
                 "reason": (
                     "Review only if this session creates a new milestone entry or end-of-day log. "
                     "Do not treat an existing daily log as a default current-state write target."
@@ -284,10 +382,10 @@ def main() -> None:
             }
         )
     if context_brief_path.is_file():
-        suggested_read_set.append(str(context_brief_path.relative_to(workspace.project_root)))
+        suggested_read_set.append(context_brief_path.relative_to(workspace.project_root).as_posix())
         conditional_review_targets.append(
             {
-                "path": str(context_brief_path.relative_to(workspace.project_root)),
+                "path": context_brief_path.relative_to(workspace.project_root).as_posix(),
                 "reason": (
                     "Review if mission, audience, scope, source of truth, workflow, "
                     "boundaries, or current phase changed."
@@ -296,10 +394,10 @@ def main() -> None:
         )
     override_review_targets = []
     if update_protocol_path.is_file():
-        suggested_read_set.append(str(update_protocol_path.relative_to(workspace.project_root)))
+        suggested_read_set.append(update_protocol_path.relative_to(workspace.project_root).as_posix())
         override_review_targets.append(
             {
-                "path": str(update_protocol_path.relative_to(workspace.project_root)),
+                "path": update_protocol_path.relative_to(workspace.project_root).as_posix(),
                 "reason": (
                     "Review project-local continuity rules before applying default cold-start, "
                     "write-target, or archive guidance. v1 helpers do not parse natural-language "
@@ -308,6 +406,16 @@ def main() -> None:
             }
         )
 
+    logical_workday_seen = workday_decision["logical_workday"]
+    project_time_policy_review_required = bool(
+        project_time_policy_cues
+        and (latest_active_day is None or latest_active_day.isoformat() != logical_workday_seen)
+    )
+    append_daily_log_entry_suggested_date = (
+        None
+        if append_date_review_required
+        else workday_decision["suggested_date"]
+    )
     payload = {
         "project_root": str(workspace.project_root),
         "storage_root": str(workspace.storage_root),
@@ -334,6 +442,9 @@ def main() -> None:
         "summary_stale": summary_stale,
         "workspace_newer_than_summary": workspace_is_newer,
         "continuity_confidence": continuity_confidence,
+        "sidecar_trust_state": trust_state["sidecar_trust_state"],
+        "allowed_operation_level": trust_state["allowed_operation_level"],
+        "continuity_drift_risk_level": trust_state["continuity_drift_risk_level"],
         "freshness_risk_level": freshness_risk["level"],
         "freshness_risk_note": freshness_risk["note"],
         "continuity_state": continuity_state,
@@ -354,7 +465,7 @@ def main() -> None:
             "latest_active_daily_log_entry_seq_seen": (
                 latest_daily_log_entry.entry_seq if latest_daily_log_entry else None
             ),
-            "logical_workday_seen": current_logical_workday_iso(),
+            "logical_workday_seen": logical_workday_seen,
             "continuity_confidence": continuity_confidence,
             "continuity_state": continuity_state,
             "continuity_seeded": continuity_seeded,
@@ -364,6 +475,10 @@ def main() -> None:
         "recommended_write_targets": recommended_write_targets,
         "conditional_review_targets": conditional_review_targets,
         "override_review_targets": override_review_targets,
+        "write_tier_judgment": build_write_tier_judgment(
+            project_root=workspace.project_root,
+            storage_root=workspace.storage_root,
+        ),
         "safe_write_context": {
             "workspace_revision": state["workspace_revision"],
             "rolling_summary_handoff": {
@@ -374,19 +489,19 @@ def main() -> None:
             },
             "commit_context_file": {
                 "rolling_summary": {
-                    "path": str(summary_path.relative_to(workspace.project_root)),
+                    "path": summary_path.relative_to(workspace.project_root).as_posix(),
                     "expected_file_revision": summary_state.revision if summary_state else None,
                     "expected_workspace_revision": state["workspace_revision"],
                 },
                 "context_brief": {
-                    "path": str(context_brief_path.relative_to(workspace.project_root)),
+                    "path": context_brief_path.relative_to(workspace.project_root).as_posix(),
                     "expected_file_revision": context_brief_state.revision if context_brief_state else None,
                     "expected_workspace_revision": state["workspace_revision"],
                 }
                 if context_brief_path.is_file()
                 else None,
                 "update_protocol": {
-                    "path": str(update_protocol_path.relative_to(workspace.project_root)),
+                    "path": update_protocol_path.relative_to(workspace.project_root).as_posix(),
                     "expected_file_revision": update_protocol_state.revision if update_protocol_state else None,
                     "expected_workspace_revision": state["workspace_revision"],
                 }
@@ -395,13 +510,32 @@ def main() -> None:
             },
             "append_daily_log_entry": {
                 "latest_file": (
-                    str(latest_daily_log.relative_to(workspace.project_root))
-                    if latest_daily_log is not None
-                    else None
+                    None
+                    if append_date_review_required
+                    else (
+                        latest_daily_log.relative_to(workspace.storage_root).as_posix()
+                        if latest_daily_log is not None
+                        else None
+                    )
                 ),
                 "latest_entry_id": latest_daily_log_entry.entry_id if latest_daily_log_entry else None,
                 "latest_entry_seq": latest_daily_log_entry.entry_seq if latest_daily_log_entry else None,
-                "suggested_date": (latest_daily_log.stem if latest_daily_log is not None else today_iso()),
+                "logical_workday": None if append_date_review_required else logical_workday_seen,
+                "suggested_date": append_daily_log_entry_suggested_date,
+                "recommendation_type": workday_decision["recommendation_type"],
+                "workday_state": workday_decision["workday_state"],
+                "heuristic_suggested_date": (
+                    None if append_date_review_required else workday_decision["heuristic_suggested_date"]
+                ),
+                "date_resolution_source": workday_decision["date_resolution_source"],
+                "requires_user_confirmation": workday_decision["requires_user_confirmation"],
+                "user_visible_prompt_level": workday_decision["user_visible_prompt_level"],
+                "project_time_policy_cues": project_time_policy_cues,
+                "project_time_policy_review_required": project_time_policy_review_required,
+                "closure_detected": closure_detected,
+                "closure_keywords": closure_keywords,
+                "summary_next_step_empty": next_step_empty,
+                "reasoning": workday_decision["reasoning"],
                 "expected_workspace_revision": state["workspace_revision"],
             },
         },
@@ -415,19 +549,13 @@ def main() -> None:
         print(f"Storage mode: {workspace.storage_mode}")
         print(f"Workspace language: {workspace.workspace_language}")
         print(f"Rolling summary: {summary_path}")
-        print(
-            "Latest active daily log: "
-            f"{latest_daily_log if latest_daily_log else 'none'}"
-        )
-        print(
-            "Latest workspace artifact: "
-            f"{latest_workspace_artifact if latest_workspace_artifact else 'none'}"
-        )
+        if append_date_review_required and latest_daily_log is not None:
+            print("Latest active daily log: redacted pending date review")
+        else:
+            print("Latest active daily log: " f"{latest_daily_log if latest_daily_log else 'none'}")
+        print("Latest workspace artifact: " f"{latest_workspace_artifact if latest_workspace_artifact else 'none'}")
         print(f"Workspace artifact scan mode: {workspace_artifact_scan_mode}")
-        print(
-            "Summary revision stale: "
-            f"{'yes' if summary_revision_is_stale else 'no'}"
-        )
+        print("Summary revision stale: " f"{'yes' if summary_revision_is_stale else 'no'}")
         print(f"Continuity confidence: {continuity_confidence}")
         if freshness_risk["note"]:
             print(f"Freshness risk: {freshness_risk['level']} - {freshness_risk['note']}")
@@ -450,7 +578,10 @@ def main() -> None:
                 print(f"  - {target['path']}: {target['reason']}")
         print("Safe write context:")
         print(f"  - workspace_revision: {state['workspace_revision']}")
-        print("  - use commit_context_file.py for revision-checked writes to context_brief.md, rolling_summary.md, or update_protocol.md")
+        print(
+            "  - use commit_context_file.py for revision-checked writes to "
+            "context_brief.md, rolling_summary.md, or update_protocol.md"
+        )
         print("  - use append_daily_log_entry.py for revision-checked daily-log milestone entries")
 
     raise SystemExit(3 if args.fail_on_stale and workspace_is_newer else 0)

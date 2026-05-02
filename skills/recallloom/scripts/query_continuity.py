@@ -14,10 +14,14 @@ from core.continuity.freshness import (
     freshness_risk_summary,
     summary_matches_empty_shell_template as shared_summary_matches_empty_shell_template,
 )
+from core.trust.state import evaluate_trust_state
 
 from _common import (
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
+    enforce_package_support_gate,
     exit_with_cli_error,
     ensure_supported_python_version,
     EnvironmentContractError,
@@ -711,10 +715,23 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     if args.limit < 1:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message="--limit must be >= 1")
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message="--limit must be >= 1",
+            payload=cli_failure_payload("invalid_prepared_input", error="--limit must be >= 1"),
+        )
 
     query_analysis = analyze_query(args.query)
     query_terms = query_analysis["terms"]
@@ -729,15 +746,31 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=error_messages[query_analysis["error_kind"]],
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=error_messages[query_analysis["error_kind"]],
+            ),
         )
     full_query = args.query.strip().casefold()
 
     try:
         workspace = find_recallloom_root(args.path)
     except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            payload=cli_failure_payload("no_project_root", error="No RecallLoom project root found."),
+        )
 
     summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
     context_brief_path = workspace.storage_root / FILE_KEYS["context_brief"]
@@ -756,6 +789,13 @@ def main() -> None:
                     "Refusing query because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
                     + "\n".join(str(path) for path in invalid_daily_logs)
                 ),
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=(
+                        "Refusing query because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
+                        + "\n".join(str(path) for path in invalid_daily_logs)
+                    ),
+                ),
             )
         state = load_workspace_state(state_path)
         summary_text = read_text(summary_path)
@@ -766,6 +806,10 @@ def main() -> None:
                 json_mode=args.json,
                 exit_code=2,
                 message=f"Missing required file-state metadata marker: {summary_path}",
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=f"Missing required file-state metadata marker: {summary_path}",
+                ),
             )
         if context_brief_path.is_file():
             context_brief_state = parse_file_state_marker(read_text(context_brief_path))
@@ -775,6 +819,10 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=f"Missing required file-state metadata marker: {context_brief_path}",
+                    payload=cli_failure_payload(
+                        "malformed_managed_file",
+                        error=f"Missing required file-state metadata marker: {context_brief_path}",
+                    ),
                 )
         if update_protocol_path.is_file():
             update_protocol_state = parse_file_state_marker(read_text(update_protocol_path))
@@ -784,6 +832,10 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=f"Missing required file-state metadata marker: {update_protocol_path}",
+                    payload=cli_failure_payload(
+                        "malformed_managed_file",
+                        error=f"Missing required file-state metadata marker: {update_protocol_path}",
+                    ),
                 )
         latest_daily_log = latest_active_daily_log(logs_dir)
         latest_daily_log_text = read_text(latest_daily_log) if latest_daily_log is not None else ""
@@ -798,6 +850,13 @@ def main() -> None:
                 message=(
                     "Missing required daily-log-entry metadata marker in the latest ISO-dated daily log: "
                     f"{latest_daily_log}"
+                ),
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=(
+                        "Missing required daily-log-entry metadata marker in the latest ISO-dated daily log: "
+                        f"{latest_daily_log}"
+                    ),
                 ),
             )
         scan_mode = "full" if args.full else "quick"
@@ -816,7 +875,21 @@ def main() -> None:
             latest_daily_log_exists=latest_daily_log is not None,
         )
     except (OSError, UnicodeDecodeError, KeyError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem/state error: {exc}")
+        message = f"Filesystem/state error: {exc}"
+        if isinstance(exc, ConfigContractError):
+            failure_contract = cli_failure_payload(
+                getattr(exc, "failure_reason", None) or "damaged_sidecar",
+                error=message,
+            )
+        else:
+            failure_contract = cli_failure_payload("damaged_sidecar", error=message)
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=failure_contract,
+        )
 
     continuity_has_seeded_state = continuity_state != "initialized_empty_shell"
     sources_considered: list[dict] = [
@@ -935,6 +1008,15 @@ def main() -> None:
                 "failed the attached-text safety scan: "
                 + ", ".join(attach_scan["hard_block_reasons"])
             ),
+            payload=cli_failure_payload(
+                "attach_scan_blocked",
+                error=(
+                    "Refusing to return attach-safe continuity text because the synthesized recall "
+                    "failed the attached-text safety scan: "
+                    + ", ".join(attach_scan["hard_block_reasons"])
+                ),
+                details={"hard_block_reasons": attach_scan["hard_block_reasons"]},
+            ),
         )
 
     estimate = token_estimate(
@@ -944,10 +1026,20 @@ def main() -> None:
             supporting_window=support_window if args.mode == "detailed" else [],
         )
     )
+    trust_state = evaluate_trust_state(
+        continuity_confidence=freshness["continuity_confidence"],
+        continuity_state=continuity_state,
+        summary_stale=freshness["summary_stale"],
+        workspace_newer_than_summary=freshness["workspace_newer_than_summary"],
+        conflict_state=conflict_state,
+    )
     payload = {
         "project_root": str(workspace.project_root),
         "storage_root": str(workspace.storage_root),
         "continuity_confidence": freshness["continuity_confidence"],
+        "sidecar_trust_state": trust_state["sidecar_trust_state"],
+        "allowed_operation_level": trust_state["allowed_operation_level"],
+        "continuity_drift_risk_level": trust_state["continuity_drift_risk_level"],
         "continuity_state": continuity_state,
         "continuity_seeded": continuity_seeded,
         "query": args.query,

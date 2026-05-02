@@ -47,6 +47,25 @@ RecallLoom now treats fast path as the default interaction mode.
 - Deep path: only when sources conflict, source coverage is insufficient, risk is too high for a direct recommendation, or the user explicitly asks for deeper review.
 - Host-memory signals remain opt-in and hint-only; if they participate, the interaction should bias toward explicit review rather than silent trust.
 
+## Layered Write Judgment
+
+Continuity writes are still agent decisions.
+Helpers can make the write safer by returning freshness state, revision guards, and default write-tier targets, but they do not decide what the prepared content means.
+
+Before writing, the agent should choose one of:
+
+- `no_write`
+- `stable_rule`
+- `current_state`
+- `milestone_evidence`
+- `multi_layer_split`
+- `defer`
+- `confirm`
+
+Use `context_brief.md` for stable rules and source-of-truth routing, `rolling_summary.md` for active current state, and the daily log for milestone evidence.
+When a session creates multiple kinds of facts, split the facts by layer instead of duplicating one sentence across files.
+If the layer cannot be explained clearly, stop with `defer` or `confirm`.
+
 ## Installation Shape
 
 The installed package directory should keep the name `recallloom/`.
@@ -101,23 +120,24 @@ cp -R /path/to/recall-loom/skills/recallloom /path/to/<user-skills-dir>/recalllo
 ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<project-skills-dir>/recallloom
 ```
 
-If you are using the Skills CLI against the public GitHub repository, the canonical install form is:
+If you are using a Skills CLI, install and update through the host's normal skill flow:
 
 ```bash
 npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
+npx skills update
 ```
 
 Keep the package contents together.
 Do not copy only `SKILL.md` without the accompanying `references/`, `profiles/`, `scripts/`, and `native_commands/` folders.
 Do not remove `package-metadata.json`; it is the package's version and capability source of truth.
-Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets on the current `0.3.3` release line.
-When building a public release from a source checkout, exclude local metadata and caches such as `.git/`, `__pycache__/`, `*.pyc`, and `.DS_Store`.
+Do not remove `managed-assets.json`; packaged helpers use it as the single declaration source for managed storage-root assets.
+When packaging from a source checkout, exclude local metadata and caches such as `.git/`, `__pycache__/`, `*.pyc`, and `.DS_Store`.
 
 For controlled audit or regression checks, you may temporarily point helpers at an alternate managed-assets file by setting `RECALLLOOM_MANAGED_ASSETS_PATH=/absolute/path/to/file.json` for that single command invocation.
 
 ## Managed Asset Registry
 
-The current `0.3.3` release line ships:
+The package ships:
 
 - `managed-assets.json`
 
@@ -148,14 +168,14 @@ RecallLoom expects a host agent tool that can:
 
 RecallLoom does not promise safe arbitrary overlapping writes to the same project workspace.
 
-For the current `0.3.3` release line, the packaged mutating helpers enforce a minimal hard-guard layer:
+The packaged mutating helpers enforce a minimal hard-guard layer:
 
 - project-scoped write locking
 - atomic replace for managed overwrite-style files
 - revision-aware commits for `context_brief.md`, `rolling_summary.md`, and `update_protocol.md`
 - revision-aware milestone appends for daily logs
 
-For the current `0.3.3` release line:
+For the current package line:
 
 - read-only helpers may run at any time
 - mutating helpers are serialized single-project operations
@@ -165,6 +185,28 @@ For the current `0.3.3` release line:
 - helpers automatically reclaim clearly stale write locks when the recorded lock pid is no longer alive
 - if a lock still needs manual recovery, use `unlock_write_lock.py` instead of deleting the lock file blindly
 
+## Package Support Gate
+
+RecallLoom package support is checked separately from project sidecar protocol compatibility.
+
+For the current package line, helpers perform a lightweight daily package-support check:
+
+- the advisory is cached by local date and installed package path
+- dispatcher may pass same-day support payloads through `RECALLLOOM_SUPPORT_STATE_JSON`, but child helpers still authorize from their own same-day cache or advisory read
+- cache files live in the user cache, not in project `.recallloom/`
+- network or advisory failures do not, by themselves, hard-block first use
+- `readonly_only` blocks mutating helpers while keeping diagnostic and read-only helpers available
+- `diagnostic_only` keeps only diagnostic actions available
+
+The default advisory URL is stored in `skills/recallloom/package-metadata.json` as `support_advisory_url`.
+The default URL points at the canonical public advisory document for this package.
+Operators can rerun support/readiness checks against the same canonical URL after publishing package updates rather than rewriting the URL for each environment.
+Operators can override it with `RECALLLOOM_SUPPORT_ADVISORY_URL`, or test / mirror it with `RECALLLOOM_SUPPORT_ADVISORY_FILE`.
+
+When blocked, helpers return the shared failure contract with `blocked_reason: package_support_blocked` and a `package_support` object containing the support state, action level, advisory source, cache source, update hints, and install-topology diagnostic reason.
+
+See `skills/recallloom/references/package-support-policy.md` for the advisory schema and environment overrides.
+
 ## Runtime Requirements
 
 The packaged helper scripts currently assume:
@@ -172,7 +214,7 @@ The packaged helper scripts currently assume:
 - a UTF-8 capable filesystem environment
 - a file-based project workspace that the host agent can read and update
 
-Current package `0.3.3` / protocol `1.0` runtime limits:
+Current package / protocol runtime limits:
 
 <!-- RecallLoom metadata sync start: runtime-requirements -->
 - minimum Python version: `3.10`
@@ -190,7 +232,7 @@ If your host environment cannot meet those assumptions, treat the helper scripts
 
 ## Blocked Contract
 
-For the current `0.3.3` hardening line, runtime and initialization failures should stay deterministic:
+Runtime and initialization failures should stay deterministic:
 
 - if the environment cannot supply Python `3.10+`, stop with a blocked runtime result instead of inventing a sidecar
 - if the target path does not look like a project root yet, fail closed and choose the right root first; a brand-new empty directory is still allowed when you intentionally want RecallLoom to initialize a new project root
@@ -241,7 +283,7 @@ They are not the primary user interface of RecallLoom.
 
 ## Unified Command Entry
 
-The current `0.3.3` release line introduces a single operator-friendly dispatcher:
+The package includes a single operator-friendly dispatcher:
 
 - `scripts/recallloom.py`
 
@@ -279,7 +321,7 @@ In hosts that do not, they still work as stable action names that an agent can i
 This is the command/operator layer.
 It is not the only way users should think about first use.
 
-For the current release, the primary user flow remains:
+The primary user flow remains:
 
 1. install the skill package
 2. explicitly invoke RecallLoom once in the conversation
@@ -290,7 +332,7 @@ If the host cannot provide Python `3.10+`, do not replace this flow with manual 
 
 ## Host Restore Routing Contract
 
-For the current `0.3.3` hardening line, initialized-project restore should be treated as a routing contract, not as open-ended skill relevance:
+Initialized-project restore should be treated as a routing contract, not as open-ended skill relevance:
 
 1. On generic prompts such as “continue this project”, “restore project context”, or “pick up where we left off”, the host/router should run a cheap valid-sidecar gate before broad skill fan-out.
 2. If a valid RecallLoom sidecar exists, route the request into the normal RecallLoom fast path and keep the first response low-jargon and result-first.
@@ -307,7 +349,7 @@ Current operator anchor:
 
 ## Native Command Wrappers
 
-The current `0.3.3` line also ships a helper for hosts that support native custom commands:
+The package also ships a helper for hosts that support native custom commands:
 
 - `scripts/install_native_commands.py`
 
@@ -360,10 +402,10 @@ Important boundary:
 - they do not replace the RecallLoom skill package
 - they all delegate to the same underlying dispatcher
 - bridge and continuity state semantics stay unchanged
-- they are not the primary user path for the current release
+- they are a convenience layer, not the primary user path
 - the generated dispatcher command uses the current Python interpreter path by default, which is safer than assuming a global `python` alias, but it may still drift when your environment upgrades or relocates that interpreter
-- `v0.3.3` extends the public wrapper surface with `rl-resume` as the single operator-facing restore target
-- `rl-bridge` remains part of the action surface through the dispatcher and helper scripts, but is not required as a native wrapper in this release line
+- the public wrapper surface includes `rl-resume` as the single operator-facing restore target
+- `rl-bridge` remains part of the action surface through the dispatcher and helper scripts, but is not required as a native wrapper in this package line
 - generic continue/restore routing still belongs to host/router policy rather than wrapper count
 
 ## Helper Script Map
@@ -376,6 +418,7 @@ The installable package currently ships these user-facing helper scripts:
 - Typical use: first entrypoint for init / resume / validate / status / bridge
 - Writes files: depends on subcommand
 - Safety model: does not replace helper semantics; it orchestrates existing helpers and keeps them as the execution truth
+- Failure-contract note: normalized failure payloads now keep machine-readable routing fields such as `blocked_reason`, `recoverability`, `surface_level`, and `trust_effect`
 - Initial scope:
   - `init`
   - `resume`
@@ -389,6 +432,7 @@ The installable package currently ships these user-facing helper scripts:
 - Typical use: optional convenience layer for hosts that benefit from `rl-init`, `rl-resume`, `rl-status`, and `rl-validate` as native custom commands
 - Writes files: yes when `--yes` is passed; otherwise preview-only
 - Safety model: preview-first; refuses unsupported hosts, requires a resolvable dispatcher command, and does not alter RecallLoom sidecar semantics
+- Failure-contract note: runtime, target path, dispatcher/template, and filesystem failures now return the shared machine-readable failure schema
 - Current host scope:
   - `claude-code`
   - `gemini-cli`
@@ -409,6 +453,7 @@ The installable package currently ships these user-facing helper scripts:
 - Rerun note: `init_context.py` is for first-time setup, not for rebuilding current project state; use revision-aware helpers for later content changes
 - `--create-daily-log` note: this flag creates an empty daily-log scaffold for today; it is optional and should not be treated as proof that a milestone already happened
 - Scaffold note: the scaffold does not consume a real entry number; the first real append still becomes `entry-1`
+- Failure-contract note: initialization failures now use the shared failure schema instead of a separate local contract copy
 
 ### `validate_context.py`
 
@@ -430,6 +475,8 @@ The installable package currently ships these user-facing helper scripts:
 - Typical use: before a major write, or during a deeper continuity review after the initial restore pass
 - Writes files: no
 - Safety model: read-only; returns primary write targets, conditional review targets, and the current revision context needed for safe helper writes
+- Write-tier note: now also returns the default `stable_rule` / `current_state` / `milestone_evidence` mapping plus explicit exit modes such as `no_write`, `merge_current_state`, and `append_milestone`
+- Trust note: now also returns `sidecar_trust_state`, `continuity_drift_risk_level`, and `allowed_operation_level` so hosts can distinguish structural trust from drift risk before writes
 - Staleness signals: marks the summary as stale both when newer non-context workspace artifacts exist and when `workspace_revision` has advanced beyond the summary's `base_workspace_revision`
 - Cold-start note: default behavior now stays on the lighter sidecar-visible freshness path; normal cold start should still restore and review first, not automatically continue project work
 - `--full` note: add this flag when you intentionally want the heavier workspace artifact scan before a higher-confidence write or audit pass
@@ -444,6 +491,7 @@ The installable package currently ships these user-facing helper scripts:
 - Writes files: yes
 - Safety model: preview-first; requires `--yes` to apply; `--before` works as a standalone date filter unless `--max-active` is also explicitly set
 - Revision note: archiving older logs does not by itself advance `workspace_revision` when the latest active daily-log cursor stays unchanged
+- Failure-contract note: runtime, root resolution, invalid date / retention input, malformed daily-log filenames or sequence state, archive target collisions, write-lock contention, and filesystem rollback failures now return the shared machine-readable failure schema
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 
 ### `commit_context_file.py`
@@ -452,6 +500,7 @@ The installable package currently ships these user-facing helper scripts:
 - Typical use: AI or a human prepares content, then commits it with revision checks through `--source-file` or UTF-8 `--stdin`
 - Writes files: yes
 - Safety model: requires expected file revision and expected workspace revision; refuses stale writes; validates marker-safe `writer-id` values; rejects missing/duplicate/unknown required section markers before writing
+- Failure-contract note: runtime, root resolution, no-root, prepared input, malformed target managed files, stale write context, attached-text safety, write-lock contention, and filesystem/state rollback failures now return the shared machine-readable failure schema
 - `update_protocol.md` behavior: this helper can write `update_protocol.md`, but it does not independently reread project-local override prose before every commit
 - Concurrency boundary: serialized per project via the shared write lock
 
@@ -461,8 +510,9 @@ The installable package currently ships these user-facing helper scripts:
 - Typical use: add a new milestone entry without rewriting the entire daily log from scratch, using `--entry-file` or UTF-8 `--stdin`
 - Writes files: yes
 - Safety model: requires expected workspace revision; validates required daily-log sections before writing; rejects marker-unsafe `writer-id` values; appends a new entry metadata block and updates sidecar state
+- Failure-contract note: runtime, root resolution, no-root, invalid date, prepared entry input, malformed target daily log, stale write context, historical append guard, attached-text safety, write-lock contention, and filesystem/state rollback failures now return the shared machine-readable failure schema
 - Scaffold behavior: if the target file is still an initialization scaffold, the first real append replaces that scaffold and writes `entry-1`
-- Date policy: this helper requires an explicit `--date`. In normal use, pass the latest active ISO-dated daily log date suggested by preflight, or an intentionally newer ISO date when starting a new active day. Use `--allow-historical` only when intentionally backfilling an older log
+- Date policy: this helper requires an explicit `--date`. In normal use, pass the logical-workday date suggested by preflight or `recommend_workday.py`. Use `--allow-historical` only when intentionally backfilling an older log
 - `update_protocol.md` behavior: this helper does not independently reread project-local override prose before every append; use preflight or explicit review first when local override rules matter
 - Concurrency boundary: serialized per project via the shared write lock
 
@@ -472,11 +522,14 @@ The installable package currently ships these user-facing helper scripts:
 - Typical use: cross-day judgment, active-day review, or before choosing a daily-log append date
 - Writes files: no
 - Safety model: read-only recommendation helper; does not mutate sidecar files and does not replace explicit date confirmation for real writes
-- Recommendation model: uses the latest active daily log, rolling summary `next_step`, rollover hour, and simple closure language heuristics to emit recommendation types such as `continue_active_day` or `start_new_active_day`
+- Recommendation model: uses the latest active daily log, rolling summary `next_step`, rollover hour, and closure language heuristics to emit structured workday guidance
+- Carryover model: a previous active day without explicit closure now defaults to `start_new_day_with_carryover` instead of treating the prior day as a repair-first path
+- Output model: returns `workday_state`, `recommendation_type`, `suggested_date`, `requires_user_confirmation`, and `user_visible_prompt_level`
 - Explicit intent model: `--session-intent` lets the caller elevate the user's current intent into the recommendation decision, using the same recommendation-type vocabulary returned by the helper
 - Date priority model: an explicit `--preferred-date` takes priority over the helper's default suggestion. If the preferred date disagrees with the heuristic result, the helper returns `review_date_before_append`.
 - Project-local override model: if `update_protocol.md` contains explicit workday or time-policy cues, the helper surfaces those cues and may return `review_date_before_append` instead of silently applying the heuristic suggestion
-- Current scope note: the machineized signal set currently includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues. Broader workspace new-day trajectory remains an operator-reviewed signal rather than a separate machine-readable contract in `v0.3.3`.
+- Failure-contract note: runtime, root resolution, no-root, invalid date / time inputs, malformed daily-log filenames, missing managed files or metadata markers, damaged state, and filesystem failures now return the shared machine-readable failure schema
+- Current scope note: the machineized signal set includes the latest active daily log cursor, `rolling_summary.md` `next_step`, closure-language heuristics, explicit session intent, and surfaced project-local time-policy cues; it still stays in the helper surface rather than upgrading protocol `1.0`
 - Relationship to preflight: this helper complements, not replaces, `preflight_context_check.py`; use it when deciding the likely workday path, then still use preflight before formal writes
 
 ### `summarize_continuity_status.py`
@@ -486,7 +539,8 @@ The installable package currently ships these user-facing helper scripts:
 - Writes files: no
 - Safety model: read-only; combines current workspace revision, rolling summary freshness, recommended actions, and workday recommendation without mutating the workspace
 - Snapshot model: includes a structured `continuity_snapshot` payload containing the currently seen workspace revision, summary revision, context-brief revision, update-protocol revision, latest active daily-log cursor, logical workday, confidence, and task type
-- Workday output model: includes the heuristic recommendation, the applied decision-priority source, and any project-local time-policy cues surfaced from `update_protocol.md`
+- Workday output model: shares the same `workday_state`, carryover default, confirmation flags, and project-local time-policy review behavior as `recommend_workday.py`
+- Trust output model: now also returns `sidecar_trust_state`, `continuity_drift_risk_level`, and `allowed_operation_level`
 - Intent model: accepts the same optional `--session-intent` hint as `recommend_workday.py`, so a status review can incorporate the user's explicit current intent without mutating workspace state
 - Scope note: this helper is an orientation surface, not a write surface; formal writes still require `preflight_context_check.py` plus the normal revision-aware helpers
 - Current read-side note: this helper now shares the same freshness baseline and handoff-first digest fields as `preflight_context_check.py`
@@ -500,6 +554,7 @@ The installable package currently ships these user-facing helper scripts:
 - Host-memory adapter note: `--enable-host-memory` reserves the Tier F adapter entrance, but it stays explicit and hint-only. Enabling it requires an explicit source label, exactly one of `--host-memory-path` or `--host-memory-command`, and an explicit confidence level. Path mode may read the given file; command mode is declared in metadata but not auto-executed.
 - Path-selection note: returns a `path_recommendation` object that distinguishes `fast_path` from `deep_path`. Fast path is recommended only when project framing plus current-state signals are already sufficient; host-memory use or weak source coverage upgrades the recommendation to deep path.
 - Output model: returns a proposal markdown body plus machine-readable metadata such as `source_tiers_used`, `proposal_sections_present`, detected promotion targets, host-memory adapter state, and the recommended interaction path
+- Failure-contract note: runtime, root resolution, no-root, invalid host-memory adapter input, damaged state, and filesystem failures now return the shared machine-readable failure schema
 - Promotion note: this helper does not stage, review, or promote anything by itself; pair it with `stage_recovery_proposal.py` only after the generated proposal has been checked
 
 ### `stage_recovery_proposal.py`
@@ -507,7 +562,8 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: stage a prepared recovery proposal into `companion/recovery/proposals/`
 - Typical use: after a human or model has prepared a recovery proposal from user-provided history materials
 - Writes files: yes
-- Safety model: acquires the project write lock, validates the proposal against the minimum `v0.3.3` section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
+- Safety model: acquires the project write lock, validates the proposal against the minimum recovery proposal section set, refuses empty source content, creates the managed companion directories if needed, and refuses to overwrite an existing staged proposal
+- Failure-contract note: runtime, source input, proposal structure, root resolution, overwrite, write-lock, and filesystem failures now return the shared machine-readable failure schema
 - Structured output note: now returns machine-readable `proposal_sections_present`, detected source tiers, and detected promotion targets in addition to the staged proposal path
 - Scope note: this helper only manages proposal placement; it does not decide proposal contents and does not promote anything into core continuity files
 
@@ -516,7 +572,8 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: record a prepared review note for a staged recovery proposal under `companion/recovery/review_log/`
 - Typical use: after a human or model reviews a proposal and wants to preserve the review outcome before promotion
 - Writes files: yes
-- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum `v0.3.3` review structure, refuses empty source content, and refuses to overwrite an existing review record
+- Safety model: acquires the project write lock, requires the proposal file to live under `companion/recovery/proposals/`, validates the review against the minimum recovery review structure, refuses empty source content, and refuses to overwrite an existing review record
+- Failure-contract note: runtime, source input, review structure, proposal path / filename validation, root resolution, overwrite, write-lock, and filesystem failures now return the shared machine-readable failure schema
 - Review-action note: returns a machine-readable `review_action` classification that distinguishes accept, accept-after-edit, reject, and hint-only outcomes
 - Scope note: this helper records review state only; promotion into `rolling_summary.md`, `daily_logs/`, or `context_brief.md` still goes through the normal helper write path
 
@@ -525,7 +582,8 @@ The installable package currently ships these user-facing helper scripts:
 - Purpose: prepare structured safe-write context for a reviewed recovery proposal before promotion into core continuity files
 - Typical use: after a proposal and review record already exist and a model or human is ready to choose durable target content
 - Writes files: no
-- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum `v0.3.3` proposal/review structure
+- Safety model: read-only; requires the proposal to live under `companion/recovery/proposals/`, the review to live under `companion/recovery/review_log/`, the review filename to match the proposal stem, and both documents to satisfy the minimum recovery proposal/review structure
+- Failure-contract note: runtime, root resolution, proposal/review path and filename validation, malformed proposal/review content, damaged core continuity files, and filesystem failures now return the shared machine-readable failure schema
 - Output model: returns proposal/review digests plus the current `safe_write_context` for `rolling_summary.md`, `context_brief.md`, and the latest daily-log append cursor
 - Scope note: this helper does not promote anything by itself; it only prepares the promotion context for the existing write helpers
 
@@ -544,7 +602,7 @@ This keeps the split clear:
 - the agent decides what to write
 - the helper scripts refuse stale or overlapping writes when the revision context no longer matches
 - the helper scripts do not act as semantic editors or fact-checkers for the prepared content itself
-- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current `0.3.3` release line
+- `preflight_context_check.py`, `archive_logs.py`, and bridge guidance are the main helper surfaces that explicitly call out `update_protocol.md` review in the current package line
 
 ### `remove_context.py`
 
@@ -552,9 +610,10 @@ This keeps the split clear:
 - Typical use: uninstall, cleanup for one project, or recovery removal for a damaged workspace
 - Writes files: yes
 - Safety model: preview-first; refuses non-managed assets unless `--force` is explicitly passed; refuses sidecar removal while managed bridge blocks still exist in root entry files
-- Uninstall note: the current `0.3.3` release line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
+- Uninstall note: the current package line keeps uninstall as a two-step flow when root entry files also contain managed bridge blocks. Remove bridge blocks first, then remove the sidecar
 - Recovery note: if normal workspace detection fails, this helper can fall back to recovery discovery; use `--storage-mode hidden|visible` to disambiguate sidecar conflicts
 - Failure note: if sidecar removal succeeds but follow-up cleanup such as `.git/info/exclude` removal fails, the helper reports that partial-cleanup state explicitly instead of hiding it behind a generic failure
+- Failure-contract note: runtime, no-root, recovery resolution, invalid storage boundary, bridge-block cleanup requirements, unknown assets, write-lock contention, malformed git exclude blocks, and filesystem failures now return the shared machine-readable failure schema
 - Hidden-mode side effect: may remove the managed RecallLoom block from `.git/info/exclude`
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 
@@ -563,8 +622,9 @@ This keeps the split clear:
 - Purpose: preview, apply, or remove thin bridges in supported root entry files
 - Typical use: connect root entry files to RecallLoom continuity files
 - Writes files: yes
-- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current `0.3.3` release line accepts exactly one bridge target per invocation
+- Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current package line accepts exactly one bridge target per invocation
 - Attach-safety note: bridge text is scanned before apply; obvious prompt overrides, invisible unicode, and secret-exfil patterns hard block the write, while suspicious-but-ambiguous patterns are surfaced as warnings in the scan result
+- Failure-contract note: bridge helper failures now return the shared machine-readable failure schema for attached-text safety blocks, invalid targets, malformed bridge blocks, missing continuity files, and write-lock contention
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 
 ### `query_continuity.py`
@@ -574,7 +634,7 @@ This keeps the split clear:
 - Writes files: no
 - Default read boundary: core continuity files first (`rolling_summary.md`, `context_brief.md`, latest active daily log, optional recent daily logs)
 - Ranking model: when match strength ties, current-state files are preferred over historical logs in this order: `rolling_summary.md` -> `context_brief.md` -> latest active daily log -> recent daily logs
-- Output model: returns `answer`, `hits`, `citations`, `risk_freshness_note`, `synthesized_recall`, `token_estimate`, `budget_hint`, `continuity_confidence`, `freshness_state`, `conflict_state`, `output_variant`, and `override_review_targets`
+- Output model: returns `answer`, `hits`, `citations`, `risk_freshness_note`, `synthesized_recall`, `token_estimate`, `budget_hint`, `continuity_confidence`, `freshness_state`, `conflict_state`, `sidecar_trust_state`, `continuity_drift_risk_level`, `allowed_operation_level`, `output_variant`, and `override_review_targets`
 - Answer-first rule: the compact and detailed output surfaces now follow the same order: `answer -> supporting citations -> risk/freshness note`
 - Citation model: daily-log citations now include explicit `date` values in addition to `path`, `section`, and `source_type`
 - Freshness model: the helper now defaults to the quick freshness path and can explicitly upgrade to the fuller workspace-artifact freshness pass when `--full` is requested; `conflict_state` still explicitly surfaces cases such as `workspace_artifact_newer_than_summary`, `summary_revision_stale`, or `multi_source_review_recommended`
@@ -591,6 +651,7 @@ This keeps the split clear:
 - Writes files: yes, but only when removing a lock
 - Safety model: preview-first; refuses to remove a lock whose recorded pid still appears alive unless `--force` is explicitly passed
 - Recovery note: this helper can be run from a project subdirectory; it will search upward for the project-root lock path
+- Failure-contract note: runtime, recovery root resolution, live write-lock refusal, and filesystem failures now return the shared machine-readable failure schema
 
 ## Managed Bridge And Exclude Boundaries
 

@@ -111,6 +111,25 @@ def validate_protocol_version(value: str) -> str:
     return value
 
 
+def validate_daily_log_protocol_path(value: str | None, *, field_name: str, path: Path) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ConfigContractError(f"{field_name} must be null or a non-empty string: {path}")
+    parts = PurePosixPath(value).parts
+    if len(parts) != 2 or parts[0] != DAILY_LOGS_DIRNAME or not DATE_FILE_RE.match(parts[1]):
+        raise ConfigContractError(
+            f"{field_name} must point to an active ISO-dated daily log under {DAILY_LOGS_DIRNAME}/: {path}"
+        )
+    try:
+        date.fromisoformat(Path(parts[1]).stem)
+    except ValueError as exc:
+        raise ConfigContractError(
+            f"{field_name} must use a valid ISO-dated daily log filename under {DAILY_LOGS_DIRNAME}/: {path}"
+        ) from exc
+    return value
+
+
 def config_payload(
     *,
     storage_mode: str,
@@ -228,11 +247,11 @@ def load_workspace_state(path: Path) -> dict:
                     f"state.json bridged_entries.{rel_target}.update_protocol_revision_seen must be a positive integer: {path}"
                 )
         if "latest_daily_log_seen" in bridge_state:
-            value = bridge_state["latest_daily_log_seen"]
-            if value is not None and (not isinstance(value, str) or not value.strip()):
-                raise ConfigContractError(
-                    f"state.json bridged_entries.{rel_target}.latest_daily_log_seen must be null or a non-empty string: {path}"
-                )
+            validate_daily_log_protocol_path(
+                bridge_state["latest_daily_log_seen"],
+                field_name=f"state.json bridged_entries.{rel_target}.latest_daily_log_seen",
+                path=path,
+            )
         if "updated_at" in bridge_state:
             value = bridge_state["updated_at"]
             if not isinstance(value, str) or not value.strip():
@@ -272,11 +291,11 @@ def load_workspace_state(path: Path) -> dict:
     daily_logs = data["daily_logs"]
     if not isinstance(daily_logs, dict):
         raise ConfigContractError(f"state.json daily_logs must be an object: {path}")
-    latest_file = daily_logs.get("latest_file")
-    if latest_file is not None and (not isinstance(latest_file, str) or not latest_file.strip()):
-        raise ConfigContractError(
-            f"state.json daily_logs.latest_file must be null or a non-empty string: {path}"
-        )
+    latest_file = validate_daily_log_protocol_path(
+        daily_logs.get("latest_file"),
+        field_name="state.json daily_logs.latest_file",
+        path=path,
+    )
     latest_entry_id = daily_logs.get("latest_entry_id")
     if latest_entry_id is not None and (
         not isinstance(latest_entry_id, str) or not latest_entry_id.strip()
@@ -305,19 +324,6 @@ def load_workspace_state(path: Path) -> dict:
                 f"{path}"
             )
     else:
-        latest_parts = PurePosixPath(latest_file).parts
-        if len(latest_parts) != 2 or latest_parts[0] != DAILY_LOGS_DIRNAME or not DATE_FILE_RE.match(latest_parts[1]):
-            raise ConfigContractError(
-                "state.json daily_logs.latest_file must point to an active ISO-dated daily log under "
-                f"{DAILY_LOGS_DIRNAME}/: {path}"
-            )
-        try:
-            date.fromisoformat(Path(latest_parts[1]).stem)
-        except ValueError as exc:
-            raise ConfigContractError(
-                "state.json daily_logs.latest_file must use a valid ISO-dated daily log filename under "
-                f"{DAILY_LOGS_DIRNAME}/: {path}"
-            ) from exc
         if latest_entry_id is None or latest_entry_seq < 1 or entry_count < 1:
             raise ConfigContractError(
                 "state.json daily_logs must record a non-null latest_entry_id and positive entry counters "
@@ -406,7 +412,10 @@ def normalize_start_path(raw_path: str | Path) -> Path:
         path = Path(raw_path).expanduser().resolve()
         return path.parent if path.is_file() else path
     except OSError as exc:
-        raise StorageResolutionError(f"Failed to resolve start path {raw_path}: {exc}") from exc
+        raise StorageResolutionError(
+            f"Failed to resolve start path {raw_path}: {exc}",
+            failure_reason="not_project_root",
+        ) from exc
 
 
 def project_lock_path(project_root: Path) -> Path:
@@ -671,7 +680,8 @@ def find_recovery_workspace(
 
         raise StorageResolutionError(
             f"Multiple RecallLoom storage roots exist under {candidate}. "
-            "Re-run with an explicit storage mode or target a path inside the desired sidecar."
+            "Re-run with an explicit storage mode or target a path inside the desired sidecar.",
+            failure_reason="dual_sidecar_conflict",
         )
 
     return None
@@ -710,10 +720,10 @@ def detect_workspace(
 
     hidden_boundary_issue = storage_root_boundary_issue(project_root, hidden_root, DEFAULT_STORAGE_MODE)
     if hidden_boundary_issue is not None:
-        raise ConfigContractError(hidden_boundary_issue)
+        raise ConfigContractError(hidden_boundary_issue, failure_reason="invalid_storage_boundary")
     visible_boundary_issue = storage_root_boundary_issue(project_root, visible_root, VISIBLE_STORAGE_MODE)
     if visible_boundary_issue is not None:
-        raise ConfigContractError(visible_boundary_issue)
+        raise ConfigContractError(visible_boundary_issue, failure_reason="invalid_storage_boundary")
 
     try:
         hidden_exists = hidden_config.is_file()
@@ -728,7 +738,8 @@ def detect_workspace(
     if hidden_exists and visible_exists:
         raise StorageResolutionError(
             f"Conflicting RecallLoom storage roots found under {project_root}: "
-            f"{hidden_root} and {visible_root}. Resolve the conflict before continuing."
+            f"{hidden_root} and {visible_root}. Resolve the conflict before continuing.",
+            failure_reason="dual_sidecar_conflict",
         )
 
     if hidden_exists:
@@ -736,7 +747,8 @@ def detect_workspace(
             raise StorageResolutionError(
                 f"Conflicting RecallLoom storage roots found under {project_root}: "
                 f"{hidden_root} is valid, but {visible_root} is a damaged visible sidecar. "
-                "Resolve the conflict before continuing."
+                "Resolve the conflict before continuing.",
+                failure_reason="dual_sidecar_conflict",
             )
         data = load_and_validate_config(
             hidden_config,
@@ -761,7 +773,8 @@ def detect_workspace(
             raise StorageResolutionError(
                 f"Conflicting RecallLoom storage roots found under {project_root}: "
                 f"{visible_root} is valid, but {hidden_root} is a damaged hidden sidecar. "
-                "Resolve the conflict before continuing."
+                "Resolve the conflict before continuing.",
+                failure_reason="dual_sidecar_conflict",
             )
         data = load_and_validate_config(
             visible_config,
@@ -784,12 +797,13 @@ def detect_workspace(
     if hidden_damaged is not None and visible_damaged is not None:
         raise StorageResolutionError(
             f"Detected conflicting damaged RecallLoom storage roots under {project_root}: "
-            f"{hidden_root} and {visible_root}. Resolve the conflict before continuing."
+            f"{hidden_root} and {visible_root}. Resolve the conflict before continuing.",
+            failure_reason="dual_sidecar_conflict",
         )
     if hidden_damaged is not None:
-        raise ConfigContractError(hidden_damaged)
+        raise ConfigContractError(hidden_damaged, failure_reason="damaged_sidecar")
     if visible_damaged is not None:
-        raise ConfigContractError(visible_damaged)
+        raise ConfigContractError(visible_damaged, failure_reason="damaged_sidecar")
 
     return None
 

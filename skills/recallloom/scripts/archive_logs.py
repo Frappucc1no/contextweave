@@ -9,11 +9,14 @@ from pathlib import Path
 import shutil
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
     daily_log_entries,
     daily_log_sequence_error,
     EnvironmentContractError,
+    enforce_package_support_gate,
     exit_with_cli_error,
     LockBusyError,
     rollback_moved_files,
@@ -59,14 +62,33 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     try:
         workspace = find_recallloom_root(args.path)
     except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            payload=cli_failure_payload("no_project_root", error="No RecallLoom project root found."),
+        )
 
     try:
         with workspace_write_lock(workspace.project_root, "archive_logs.py"):
@@ -82,16 +104,24 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=2,
                     message=str(exc),
+                    payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
                 )
             invalid_daily_logs = invalid_iso_like_daily_log_files(logs_dir)
             if invalid_daily_logs:
+                invalid_paths = [str(path) for path in invalid_daily_logs]
+                message = (
+                    "Refusing to archive because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
+                    + "\n".join(invalid_paths)
+                )
                 exit_with_cli_error(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
-                    message=(
-                        "Refusing to archive because one or more daily log filenames match the date pattern but are invalid ISO dates:\n"
-                        + "\n".join(str(path) for path in invalid_daily_logs)
+                    message=message,
+                    payload=cli_failure_payload(
+                        "malformed_managed_file",
+                        error=message,
+                        details={"invalid_paths": invalid_paths},
                     ),
                 )
             candidates = sorted_daily_log_files(logs_dir)
@@ -103,18 +133,35 @@ def main() -> None:
                 try:
                     cutoff = parse_iso_date(args.before)
                 except ValueError:
+                    message = f"Invalid --before date: {args.before}"
                     exit_with_cli_error(
                         parser,
                         json_mode=args.json,
                         exit_code=2,
-                        message=f"Invalid --before date: {args.before}",
+                        message=message,
+                        payload=cli_failure_payload(
+                            "invalid_date",
+                            error=message,
+                            details={"before": args.before},
+                        ),
                     )
                 for path in candidates:
                     if parse_iso_date(path.stem) < cutoff:
                         to_archive.add(path)
 
             if effective_max_active is not None and effective_max_active < 0:
-                exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message="--max-active must be >= 0")
+                message = "--max-active must be >= 0"
+                exit_with_cli_error(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=message,
+                    payload=cli_failure_payload(
+                        "invalid_prepared_input",
+                        error=message,
+                        details={"max_active": effective_max_active},
+                    ),
+                )
 
             if effective_max_active is not None and len(candidates) > effective_max_active:
                 excess = len(candidates) - effective_max_active
@@ -126,13 +173,19 @@ def main() -> None:
             target_map = [(source, archive_dir / source.name) for source in ordered]
             existing_targets = [str(target) for _, target in target_map if target.exists()]
             if existing_targets:
+                message = (
+                    "Refusing to archive because one or more archive targets already exist:\n"
+                    + "\n".join(existing_targets)
+                )
                 exit_with_cli_error(
                     parser,
                     json_mode=args.json,
                     exit_code=3,
-                    message=(
-                        "Refusing to archive because one or more archive targets already exist:\n"
-                        + "\n".join(existing_targets)
+                    message=message,
+                    payload=cli_failure_payload(
+                        "malformed_managed_file",
+                        error=message,
+                        details={"existing_targets": existing_targets},
                     ),
                 )
 
@@ -147,13 +200,19 @@ def main() -> None:
                 latest_entries = daily_log_entries(latest_text)
                 sequence_error = daily_log_sequence_error(latest_entries)
                 if sequence_error is not None:
+                    message = (
+                        "Refusing to archive because the newest remaining daily log is damaged: "
+                        f"{latest_remaining}. {sequence_error}"
+                    )
                     exit_with_cli_error(
                         parser,
                         json_mode=args.json,
                         exit_code=2,
-                        message=(
-                            "Refusing to archive because the newest remaining daily log is damaged: "
-                            f"{latest_remaining}. {sequence_error}"
+                        message=message,
+                        payload=cli_failure_payload(
+                            "malformed_managed_file",
+                            error=message,
+                            details={"path": str(latest_remaining), "sequence_error": sequence_error},
                         ),
                     )
                 latest_entry = latest_entries[-1]
@@ -163,7 +222,9 @@ def main() -> None:
 
             previous_daily_state = state.get("daily_logs", {})
             next_latest_file = (
-                str(latest_remaining.relative_to(workspace.storage_root)) if latest_remaining else None
+                latest_remaining.relative_to(workspace.storage_root).as_posix()
+                if latest_remaining
+                else None
             )
             cursor_changed = (
                 previous_daily_state.get("latest_file") != next_latest_file
@@ -183,23 +244,27 @@ def main() -> None:
                             try:
                                 rollback_moved_files(applied_moves)
                             except OSError as rollback_exc:
+                                message = (
+                                    f"Filesystem error while archiving {source} to {target}: {exc}. "
+                                    f"Rollback also failed: {rollback_exc}. Workspace may be partially updated."
+                                )
                                 exit_with_cli_error(
                                     parser,
                                     json_mode=args.json,
                                     exit_code=2,
-                                    message=(
-                                        f"Filesystem error while archiving {source} to {target}: {exc}. "
-                                        f"Rollback also failed: {rollback_exc}. Workspace may be partially updated."
-                                    ),
+                                    message=message,
+                                    payload=cli_failure_payload("damaged_sidecar", error=message),
                                 )
+                        message = (
+                            f"Filesystem error while archiving {source} to {target}: {exc}. "
+                            "Any earlier moved daily logs were restored to their original locations."
+                        )
                         exit_with_cli_error(
                             parser,
                             json_mode=args.json,
                             exit_code=2,
-                            message=(
-                                f"Filesystem error while archiving {source} to {target}: {exc}. "
-                                "Any earlier moved daily logs were restored to their original locations."
-                            ),
+                            message=message,
+                            payload=cli_failure_payload("damaged_sidecar", error=message),
                         )
                     applied_moves.append((source, target))
                     archived_targets.append(str(target))
@@ -216,23 +281,27 @@ def main() -> None:
                     try:
                         rollback_moved_files(applied_moves)
                     except OSError as rollback_exc:
+                        message = (
+                            f"Failed to update state after archiving daily logs: {exc}. "
+                            f"Rollback also failed: {rollback_exc}. Workspace may be partially updated."
+                        )
                         exit_with_cli_error(
                             parser,
                             json_mode=args.json,
                             exit_code=2,
-                            message=(
-                                f"Failed to update state after archiving daily logs: {exc}. "
-                                f"Rollback also failed: {rollback_exc}. Workspace may be partially updated."
-                            ),
+                            message=message,
+                            payload=cli_failure_payload("damaged_sidecar", error=message),
                         )
+                    message = (
+                        f"Failed to update state after archiving daily logs: {exc}. "
+                        "Moved daily logs were restored to their original locations."
+                    )
                     exit_with_cli_error(
                         parser,
                         json_mode=args.json,
                         exit_code=2,
-                        message=(
-                            f"Failed to update state after archiving daily logs: {exc}. "
-                            "Moved daily logs were restored to their original locations."
-                        ),
+                        message=message,
+                        payload=cli_failure_payload("damaged_sidecar", error=message),
                     )
             else:
                 archived_targets = [str(target) for _, target in target_map]
@@ -250,11 +319,30 @@ def main() -> None:
                 "workspace_revision_bumped": bool(ordered and args.yes and cursor_changed),
             }
     except LockBusyError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=3, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=3,
+            message=str(exc),
+            payload=cli_failure_payload("write_lock_busy", error=str(exc)),
+        )
     except ConfigContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        message = f"Filesystem error: {exc}"
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("damaged_sidecar", error=message),
+        )
 
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))

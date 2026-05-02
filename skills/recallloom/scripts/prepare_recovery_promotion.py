@@ -20,9 +20,12 @@ from core.protocol.contracts import FILE_KEYS
 from core.protocol.markers import parse_file_state_marker
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
     EnvironmentContractError,
+    enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
     find_recallloom_root,
@@ -90,85 +93,149 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     try:
         workspace = find_recallloom_root(args.path)
     except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            payload=cli_failure_payload("no_project_root", error="No RecallLoom project root found."),
+        )
 
     proposals_dir = (workspace.storage_root / "companion" / "recovery" / "proposals").resolve()
     review_log_dir = (workspace.storage_root / "companion" / "recovery" / "review_log").resolve()
 
     proposal_path = resolve_candidate_path(args.proposal_file, proposals_dir, workspace.project_root)
     if not proposal_path.is_file():
+        message = f"Proposal file does not exist: {proposal_path}"
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=f"Proposal file does not exist: {proposal_path}",
+            message=message,
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=message,
+                details={"proposal_file": str(proposal_path)},
+            ),
         )
     if proposal_path.parent != proposals_dir:
+        message = (
+            "Proposal file must live under companion/recovery/proposals/: "
+            f"{proposal_path}"
+        )
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=(
-                "Proposal file must live under companion/recovery/proposals/: "
-                f"{proposal_path}"
+            message=message,
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=message,
+                details={"proposal_file": str(proposal_path)},
             ),
         )
     if not RECOVERY_PROPOSAL_FILE_RE.match(proposal_path.name):
+        message = (
+            "Proposal filename does not match the expected recovery proposal shape: "
+            f"{proposal_path.name}"
+        )
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=(
-                "Proposal filename does not match the expected recovery proposal shape: "
-                f"{proposal_path.name}"
+            message=message,
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=message,
+                details={"proposal_file": str(proposal_path)},
             ),
         )
 
     review_name = args.review_file or f"{proposal_path.stem}.review.md"
     review_path = resolve_candidate_path(review_name, review_log_dir, workspace.project_root)
     if not review_path.is_file():
+        message = f"Review file does not exist: {review_path}"
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=f"Review file does not exist: {review_path}",
+            message=message,
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=message,
+                details={"review_file": str(review_path)},
+            ),
         )
     if review_path.parent != review_log_dir:
+        message = (
+            "Review file must live under companion/recovery/review_log/: "
+            f"{review_path}"
+        )
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=(
-                "Review file must live under companion/recovery/review_log/: "
-                f"{review_path}"
+            message=message,
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=message,
+                details={"review_file": str(review_path)},
             ),
         )
     if not REVIEW_RECORD_FILE_RE.match(review_path.name):
+        message = (
+            "Review filename does not match the expected review record shape: "
+            f"{review_path.name}"
+        )
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=(
-                "Review filename does not match the expected review record shape: "
-                f"{review_path.name}"
+            message=message,
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=message,
+                details={"review_file": str(review_path)},
             ),
         )
     expected_review_name = f"{proposal_path.stem}.review.md"
     if review_path.name != expected_review_name:
+        message = (
+            "Review filename must map to the proposal stem exactly. "
+            f"Expected {expected_review_name}, found {review_path.name}."
+        )
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=(
-                "Review filename must map to the proposal stem exactly. "
-                f"Expected {expected_review_name}, found {review_path.name}."
+            message=message,
+            payload=cli_failure_payload(
+                "invalid_prepared_input",
+                error=message,
+                details={
+                    "expected_review_file": expected_review_name,
+                    "review_file": str(review_path),
+                },
             ),
         )
 
@@ -176,41 +243,67 @@ def main() -> None:
         proposal_text = read_text(proposal_path)
         review_text = read_text(review_path)
     except (OSError, UnicodeDecodeError) as exc:
+        message = f"Filesystem error: {exc}"
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=f"Filesystem error: {exc}",
+            message=message,
+            payload=cli_failure_payload("damaged_sidecar", error=message),
         )
     if not proposal_text.strip():
+        message = f"Proposal file is empty: {proposal_path}"
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=f"Proposal file is empty: {proposal_path}",
+            message=message,
+            payload=cli_failure_payload(
+                "malformed_managed_file",
+                error=message,
+                details={"proposal_file": str(proposal_path)},
+            ),
         )
     if not review_text.strip():
+        message = f"Review file is empty: {review_path}"
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message=f"Review file is empty: {review_path}",
+            message=message,
+            payload=cli_failure_payload(
+                "malformed_managed_file",
+                error=message,
+                details={"review_file": str(review_path)},
+            ),
         )
     proposal_errors = validate_recovery_proposal_text(proposal_text)
     if proposal_errors:
+        message = "Recovery proposal failed structure checks:\n- " + "\n- ".join(proposal_errors)
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message="Recovery proposal failed structure checks:\n- " + "\n- ".join(proposal_errors),
+            message=message,
+            payload=cli_failure_payload(
+                "malformed_managed_file",
+                error=message,
+                details={"proposal_errors": proposal_errors, "proposal_file": str(proposal_path)},
+            ),
         )
     review_errors = validate_recovery_review_text(review_text)
     if review_errors:
+        message = "Recovery review failed structure checks:\n- " + "\n- ".join(review_errors)
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message="Recovery review failed structure checks:\n- " + "\n- ".join(review_errors),
+            message=message,
+            payload=cli_failure_payload(
+                "malformed_managed_file",
+                error=message,
+                details={"review_errors": review_errors, "review_file": str(review_path)},
+            ),
         )
     proposal_sections = extract_structured_sections(proposal_text, PROPOSAL_SECTION_ALIASES)
     review_sections = extract_structured_sections(review_text, REVIEW_SECTION_ALIASES)
@@ -226,41 +319,78 @@ def main() -> None:
         summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
         context_brief_path = workspace.storage_root / FILE_KEYS["context_brief"]
         if not summary_path.is_file():
+            message = f"Missing required file: {summary_path}"
             exit_with_cli_error(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
-                message=f"Missing required file: {summary_path}",
+                message=message,
+                payload=cli_failure_payload(
+                    "damaged_sidecar",
+                    error=message,
+                    details={"path": str(summary_path)},
+                ),
             )
         summary_state = parse_file_state_marker(read_text(summary_path))
         if summary_state is None:
+            message = f"Missing required file-state metadata marker: {summary_path}"
             exit_with_cli_error(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
-                message=f"Missing required file-state metadata marker: {summary_path}",
+                message=message,
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=message,
+                    details={"path": str(summary_path)},
+                ),
             )
         if not context_brief_path.is_file():
+            message = f"Missing required file: {context_brief_path}"
             exit_with_cli_error(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
-                message=f"Missing required file: {context_brief_path}",
+                message=message,
+                payload=cli_failure_payload(
+                    "damaged_sidecar",
+                    error=message,
+                    details={"path": str(context_brief_path)},
+                ),
             )
         context_brief_state = parse_file_state_marker(read_text(context_brief_path))
         if context_brief_state is None:
+            message = f"Missing required file-state metadata marker: {context_brief_path}"
             exit_with_cli_error(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
-                message=f"Missing required file-state metadata marker: {context_brief_path}",
+                message=message,
+                payload=cli_failure_payload(
+                    "malformed_managed_file",
+                    error=message,
+                    details={"path": str(context_brief_path)},
+                ),
             )
         latest_daily_log = latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME)
         latest_daily_log_entry = latest_daily_log_entry_info(latest_daily_log)
     except ConfigContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        message = f"Filesystem error: {exc}"
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("damaged_sidecar", error=message),
+        )
 
     payload = {
         "ok": True,
@@ -280,12 +410,12 @@ def main() -> None:
             "workspace_revision": state["workspace_revision"],
             "commit_context_file": {
                 "rolling_summary": {
-                    "path": str(summary_path.relative_to(workspace.project_root)),
+                    "path": summary_path.relative_to(workspace.project_root).as_posix(),
                     "expected_file_revision": summary_state.revision if summary_state else None,
                     "expected_workspace_revision": state["workspace_revision"],
                 },
                 "context_brief": {
-                    "path": str(context_brief_path.relative_to(workspace.project_root)),
+                    "path": context_brief_path.relative_to(workspace.project_root).as_posix(),
                     "expected_file_revision": context_brief_state.revision if context_brief_state else None,
                     "expected_workspace_revision": state["workspace_revision"],
                 }
@@ -294,7 +424,7 @@ def main() -> None:
             },
             "append_daily_log_entry": {
                 "latest_file": (
-                    str(latest_daily_log.relative_to(workspace.project_root))
+                    latest_daily_log.relative_to(workspace.storage_root).as_posix()
                     if latest_daily_log is not None
                     else None
                 ),

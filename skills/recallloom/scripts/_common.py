@@ -36,6 +36,9 @@ from core import errors as core_errors
 from core.workspace import runtime as workspace_runtime
 from core.bridge import blocks as bridge_blocks
 from core.continuity import freshness as continuity_freshness
+from core.failure.contracts import failure_payload, preferred_failure_language
+from core.support.cache import SUPPORT_STATE_ENV, package_support_result
+from core.support.policy import action_level_for_script
 from core.safety import attached_text as safety_attached_text
 
 METADATA_PATH = PACKAGE_ROOT / "package-metadata.json"
@@ -616,6 +619,97 @@ def exit_with_cli_error(
         print(json.dumps(body, ensure_ascii=False, indent=2))
         raise SystemExit(exit_code)
     parser.exit(exit_code, message + "\n")
+
+
+def cli_failure_payload(
+    reason: str,
+    *,
+    error: str | None = None,
+    details: dict | None = None,
+    findings: list | None = None,
+    extra: dict | None = None,
+) -> dict:
+    return failure_payload(
+        reason,
+        language=preferred_failure_language(os.environ),
+        error=error,
+        details=details,
+        findings=findings,
+        extra=extra,
+    )
+
+
+def exit_with_failure_contract(
+    parser,
+    *,
+    json_mode: bool,
+    exit_code: int,
+    message: str,
+    reason: str,
+    details: dict | None = None,
+    findings: list | None = None,
+    extra: dict | None = None,
+) -> None:
+    exit_with_cli_error(
+        parser,
+        json_mode=json_mode,
+        exit_code=exit_code,
+        message=message,
+        payload=cli_failure_payload(
+            reason,
+            error=message,
+            details=details,
+            findings=findings,
+            extra=extra,
+        ),
+    )
+
+
+def cli_failure_payload_for_exception(
+    exc: BaseException,
+    *,
+    default_reason: str,
+    extra: dict | None = None,
+) -> dict:
+    reason = getattr(exc, "failure_reason", None) or default_reason
+    return cli_failure_payload(reason, error=str(exc), extra=extra)
+
+
+def enforce_package_support_gate(
+    parser,
+    *,
+    json_mode: bool,
+    action_name: str | None = None,
+    action_level: str | None = None,
+) -> dict:
+    metadata = load_package_metadata()
+    script_name = Path(sys.argv[0]).name
+    action_name = action_name or script_name
+    action_level = action_level or action_level_for_script(script_name)
+    support = package_support_result(
+        package_root=PACKAGE_ROOT,
+        package_version=metadata["package_version"],
+        action_name=action_name,
+        action_level=action_level,
+        advisory_url=metadata.get("support_advisory_url"),
+        env=os.environ,
+    )
+    os.environ[SUPPORT_STATE_ENV] = json.dumps(support, ensure_ascii=False)
+    if support["allowed"]:
+        return support
+    message = support.get("user_message") or "RecallLoom package support gate blocked this action."
+    exit_with_cli_error(
+        parser,
+        json_mode=json_mode,
+        exit_code=4,
+        message=message,
+        payload=cli_failure_payload(
+            "package_support_blocked",
+            error=message,
+            details={"package_support": support},
+            extra={"package_support": support},
+        ),
+    )
 
 
 def load_json(path: Path) -> dict:

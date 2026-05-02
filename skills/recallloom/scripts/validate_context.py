@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import json
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from core.bridge.blocks import (
     exclude_block_integrity,
     managed_exclude_block_text,
 )
+from core.continuity.workday import logical_workday_for
 from core.protocol.contracts import (
     BRIDGE_START,
     FILE_KEYS,
@@ -37,6 +39,9 @@ from _common import (
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
     EnvironmentContractError,
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
+    enforce_package_support_gate,
     exit_with_cli_error,
     StorageResolutionError,
     ValidationFinding,
@@ -56,6 +61,8 @@ from _common import (
     sorted_daily_log_files,
     validate_iso_date,
 )
+
+DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR = 3
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -413,6 +420,23 @@ def validate_daily_logs(workspace, state: dict | None, findings: list[Validation
     dated_logs = sorted_daily_log_files(logs_dir)
     active_logs = sorted_active_daily_log_files(logs_dir)
     latest_log_path = active_logs[-1] if active_logs else None
+    logical_workday = logical_workday_for(
+        datetime.now().astimezone(),
+        DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR,
+    )
+
+    for log_path in active_logs:
+        if parse_iso_date(log_path.stem) > logical_workday:
+            add_finding(
+                findings,
+                "error",
+                "future_dated_active_daily_log",
+                (
+                    "Future-dated active daily log is ahead of the current logical workday "
+                    f"{logical_workday.isoformat()}."
+                ),
+                log_path,
+            )
 
     for log_path in dated_logs:
         text = read_text(log_path)
@@ -693,7 +717,7 @@ def validate_daily_log_state(workspace, state: dict | None, findings: list[Valid
     latest_file = daily_state.get("latest_file")
     actual_latest = sorted_active_daily_log_files(workspace.storage_root / DAILY_LOGS_DIRNAME)
     actual_latest_rel = (
-        str(actual_latest[-1].relative_to(workspace.storage_root))
+        actual_latest[-1].relative_to(workspace.storage_root).as_posix()
         if actual_latest
         else None
     )
@@ -740,7 +764,7 @@ def validate_bridge_blocks(workspace, state: dict | None, findings: list[Validat
     for rel_path in ROOT_ENTRY_CANDIDATES:
         path = workspace.project_root / rel_path
         if not path.is_file():
-            if state and str(rel_path) in bridged_entries:
+            if state and rel_path.as_posix() in bridged_entries:
                 add_finding(
                     findings,
                     "error",
@@ -761,7 +785,7 @@ def validate_bridge_blocks(workspace, state: dict | None, findings: list[Validat
             continue
 
         has_bridge_block = BRIDGE_START in read_text(path)
-        rel_key = str(rel_path)
+        rel_key = rel_path.as_posix()
         state_records_entry = bool(state and rel_key in bridged_entries)
         if state_records_entry and not has_bridge_block:
             add_finding(
@@ -848,8 +872,13 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=str(exc),
-            payload={"valid": False},
+            payload=cli_failure_payload(
+                "python_runtime_unavailable",
+                error=str(exc),
+                extra={"valid": False},
+            ),
         )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     try:
         workspace = find_recallloom_root(
@@ -863,7 +892,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=str(exc),
-            payload={"valid": False},
+            payload=cli_failure_payload_for_exception(
+                exc,
+                default_reason="damaged_sidecar",
+                extra={"valid": False},
+            ),
         )
     if workspace is None:
         exit_with_cli_error(
@@ -871,7 +904,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=1,
             message="No RecallLoom project root found.",
-            payload={"valid": False},
+            payload=cli_failure_payload(
+                "no_project_root",
+                error="No RecallLoom project root found.",
+                extra={"valid": False},
+            ),
         )
 
     findings: list[ValidationFinding] = []
@@ -893,7 +930,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=f"Filesystem error: {exc}",
-            payload={"valid": False},
+            payload=cli_failure_payload(
+                "damaged_sidecar",
+                error=f"Filesystem error: {exc}",
+                extra={"valid": False},
+            ),
         )
 
     errors = [f for f in findings if f.level == "error"]

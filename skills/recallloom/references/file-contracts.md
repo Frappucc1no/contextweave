@@ -46,6 +46,17 @@ This file is maintained by helper scripts and supports:
 - git exclude state
 - daily log state
 
+Protocol `1.0` scope note:
+
+- helper-only routing fields such as `sidecar_trust_state`
+- `continuity_drift_risk_level`
+- `allowed_operation_level`
+
+are not persisted into `state.json` in the current contract line. They stay in helper/dispatcher JSON surfaces.
+
+Package support fields such as `package_support_state`, advisory source, and daily support-cache status are also not persisted into `state.json`.
+They belong to the installed package runtime and user-level cache, not to the project sidecar.
+
 Expected `files` entries:
 
 - `files.context_brief`
@@ -127,7 +138,7 @@ Current supported `workspace_language` values for protocol `1.0`:
 Managed asset registry note:
 
 - protocol `1.0` core semantics remain defined by this document
-- the current `0.3.3` release line additionally ships `recallloom/managed-assets.json`
+- the current package line additionally ships `recallloom/managed-assets.json`
   as the single declaration source for:
   - required managed files
   - optional managed files
@@ -304,7 +315,7 @@ Role:
 
 - optional managed namespace for companion-layer assets
 
-Current `0.3.3` release-line purpose:
+Current package-line purpose:
 
 - hold recovery proposals and related review records under the sidecar without creating a second root
 
@@ -316,7 +327,7 @@ Contract rule:
 - allowed child directories and dynamic file patterns are declared by
   `recallloom/managed-assets.json`
 
-Current recognized subtree in this `0.3.3` release line:
+Current recognized subtree in this package line:
 
 - `STORAGE_ROOT/companion/recovery/`
 
@@ -541,6 +552,6 @@ Operational rule:
 
 - cold-start flow should check this file before applying the default read order
 - write-planning flow should check this file before choosing the final write set
-- in the current `0.3.3` release line, `preflight_context_check.py`, `archive_logs.py`, and bridge guidance surface this file for review rather than automatically executing its natural-language rules
+- in the current package line, `preflight_context_check.py`, `archive_logs.py`, and bridge guidance surface this file for review rather than automatically executing its natural-language rules
 - revision-aware write helpers (`commit_context_file.py`, `append_daily_log_entry.py`) do not reread or execute natural-language override prose automatically
 - revision-aware helper commits should keep this file's `file-state` marker and `state.json.update_protocol_revision` in sync

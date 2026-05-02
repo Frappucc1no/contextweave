@@ -7,6 +7,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from core.protocol.contracts import validate_workspace_language
+
 ROOT_ENTRY_CANDIDATES = (
     Path("README.md"),
     Path("AGENTS.md"),
@@ -138,11 +140,13 @@ def tier_c_sources(project_root: Path) -> list[dict]:
 
 def tier_d_sources(project_root: Path, explicit_sources: list[str]) -> list[dict]:
     sources: list[dict] = []
+    missing: list[str] = []
     for raw in explicit_sources:
         candidate = Path(raw).expanduser()
         if not candidate.is_absolute():
             candidate = (project_root / candidate).resolve()
         if not candidate.is_file():
+            missing.append(str(candidate))
             continue
         sources.append(
             {
@@ -155,6 +159,10 @@ def tier_d_sources(project_root: Path, explicit_sources: list[str]) -> list[dict
                 "confidence": "high",
                 "excerpt_lines": read_source_excerpt(candidate),
             }
+        )
+    if missing:
+        raise ValueError(
+            "Explicit Tier-D source paths must exist as files: " + ", ".join(sorted(missing))
         )
     return sources
 
@@ -324,56 +332,131 @@ def _merge_excerpt_lines(sources: list[dict], *, tiers: tuple[str, ...], max_lin
     return lines
 
 
-def render_coldstart_proposal(project_root: Path, sources: list[dict]) -> str:
+def _localized_coldstart_strings(language: str) -> dict[str, object]:
+    if language == "zh-CN":
+        return {
+            "source_line": "- 第 {tier} 层 | {confidence} | {relative_path}",
+            "fallback_background": "扫描到的来源还不足以明确背景，需要人工审阅。",
+            "fallback_current_state": "扫描到的来源尚未明确当前状态，需要人工审阅。",
+            "fallback_milestones": "扫描到的来源里没有发现明确的里程碑证据。",
+            "fallback_next_step": "下一步尚不明确，提升前需要人工审阅。",
+            "tier_f_disabled": "第 F 层 host-memory 来源默认关闭，且本次未读取。",
+            "tier_f_path": (
+                "第 F 层 host-memory 来源以显式的仅提示输入纳入，但仍需要人工审阅。"
+            ),
+            "tier_f_command": (
+                "第 F 层 host-memory command 元数据以仅提示输入纳入；命令本身没有被自动执行。"
+            ),
+            "uncertainty_generated": "该提案是基于文件摘录的启发式结果，仍需要人工审阅。",
+            "uncertainty_used_tiers": "使用层级：{tiers}。",
+            "promotion_lines": [
+                "- context_brief.md：适合承载持久的项目背景、范围和事实来源",
+                "- rolling_summary.md：适合承载当前状态、下一步和当前判断",
+                "- daily_logs/：仅在值得长期保留时记录里程碑证据",
+            ],
+            "review_before_promotion": "- 提升前需要人工审阅。",
+            "generated_from": "- 本提案基于 {count} 个来源生成。",
+            "no_eligible_sources": "- 没有发现符合条件的来源。",
+            "no_judgment_reversals": "- 没有自动推断出判断反转。",
+            "section_headings": [
+                "来源摘要",
+                "来源类型与可信级别",
+                "候选当前状态事实",
+                "候选里程碑事件",
+                "候选判断反转",
+                "候选下一步变化",
+                "与当前 sidecar 的冲突",
+                "建议提升动作",
+                "审阅结论",
+            ],
+        }
+    return {
+        "source_line": "- Tier {tier} | {confidence} | {relative_path}",
+        "fallback_background": "Unclear from scanned sources; needs review.",
+        "fallback_current_state": "Current state is not yet explicit in the scanned sources; needs review.",
+        "fallback_milestones": "No clear milestone evidence was found in the scanned sources.",
+        "fallback_next_step": "Next step is not explicit; review manually before promotion.",
+        "tier_f_disabled": "Tier F host-memory sources are disabled by default and were not read.",
+        "tier_f_path": (
+            "Tier F host-memory sources were included as explicit hint-only inputs and still require manual review."
+        ),
+        "tier_f_command": (
+            "Tier F host-memory command metadata was included as hint-only input; the command was not auto-executed."
+        ),
+        "uncertainty_generated": "Proposal is generated heuristically from file excerpts and still requires review.",
+        "uncertainty_used_tiers": "Used tiers: {tiers}.",
+        "promotion_lines": [
+            "- context_brief.md: durable project background, scope, and source-of-truth facts",
+            "- rolling_summary.md: current state, next step, and active judgments",
+            "- daily_logs/: milestone evidence only if worth long-term retention",
+        ],
+        "review_before_promotion": "- Review before promotion.",
+        "generated_from": "- Generated from {count} source(s).",
+        "no_eligible_sources": "- No eligible sources were found.",
+        "no_judgment_reversals": "- No judgment reversals were inferred automatically.",
+        "section_headings": [
+            "source summary",
+            "source type and confidence",
+            "candidate current-state facts",
+            "candidate milestone events",
+            "candidate judgment reversals",
+            "candidate next-step changes",
+            "conflicts with current sidecar",
+            "suggested promotion actions",
+            "review conclusion",
+        ],
+    }
+
+
+def render_coldstart_proposal(project_root: Path, sources: list[dict], *, workspace_language: str) -> str:
+    language = validate_workspace_language(workspace_language)
+    strings = _localized_coldstart_strings(language)
     tiers_used = sorted({source["tier"] for source in sources})
     tier_f_sources = [source for source in sources if source["tier"] == "F"]
     source_lines = [
-        f"- Tier {source['tier']} | {source['confidence']} | {source['relative_path']}"
+        str(strings["source_line"]).format(
+            tier=source["tier"],
+            confidence=source["confidence"],
+            relative_path=source["relative_path"],
+        )
         for source in sources
     ]
     background_lines = _merge_excerpt_lines(sources, tiers=("A", "B"), max_lines=4) or [
-        "Unclear from scanned sources; needs review."
+        strings["fallback_background"]
     ]
     current_state_lines = _merge_excerpt_lines(sources, tiers=("C", "D"), max_lines=4) or [
-        "Current state is not yet explicit in the scanned sources; needs review."
+        strings["fallback_current_state"]
     ]
     milestone_lines = _merge_excerpt_lines(sources, tiers=("B", "E"), max_lines=4) or [
-        "No clear milestone evidence was found in the scanned sources."
+        strings["fallback_milestones"]
     ]
     next_step_lines = _merge_excerpt_lines(sources, tiers=("C", "D", "E"), max_lines=3) or [
-        "Next step is not explicit; review manually before promotion."
+        strings["fallback_next_step"]
     ]
-    tier_f_note = "Tier F host-memory sources are disabled by default and were not read."
+    tier_f_note = strings["tier_f_disabled"]
     if tier_f_sources:
         if any(source.get("kind") == "host_memory_path" for source in tier_f_sources):
-            tier_f_note = (
-                "Tier F host-memory sources were included as explicit hint-only inputs and still require manual review."
-            )
+            tier_f_note = strings["tier_f_path"]
         else:
-            tier_f_note = (
-                "Tier F host-memory command metadata was included as hint-only input; the command was not auto-executed."
-            )
+            tier_f_note = strings["tier_f_command"]
     uncertainty_lines = [
-        "Proposal is generated heuristically from file excerpts and still requires review.",
-        f"Used tiers: {', '.join(tiers_used) if tiers_used else 'none'}.",
+        strings["uncertainty_generated"],
+        str(strings["uncertainty_used_tiers"]).format(tiers=", ".join(tiers_used) if tiers_used else "none"),
         tier_f_note,
     ]
-    promotion_lines = [
-        "- context_brief.md: durable project background, scope, and source-of-truth facts",
-        "- rolling_summary.md: current state, next step, and active judgments",
-        "- daily_logs/: milestone evidence only if worth long-term retention",
-    ]
+    promotion_lines = list(strings["promotion_lines"])
+    headings = list(strings["section_headings"])
 
     sections = [
-        ("来源摘要", [f"- Generated from {len(sources)} source(s).", *background_lines[:2]]),
-        ("来源类型与可信级别", source_lines or ["- No eligible sources were found."]),
-        ("候选当前状态事实", [*background_lines, *current_state_lines]),
-        ("候选里程碑事件", milestone_lines),
-        ("候选判断反转", ["- No judgment reversals were inferred automatically."]),
-        ("候选下一步变化", next_step_lines),
-        ("与当前 sidecar 的冲突", [f"- {line}" for line in uncertainty_lines]),
-        ("建议提升动作", promotion_lines),
-        ("审阅结论", ["- Review before promotion."]),
+        (headings[0], [str(strings["generated_from"]).format(count=len(sources)), *background_lines[:2]]),
+        (headings[1], source_lines or [strings["no_eligible_sources"]]),
+        (headings[2], [*background_lines, *current_state_lines]),
+        (headings[3], milestone_lines),
+        (headings[4], [strings["no_judgment_reversals"]]),
+        (headings[5], next_step_lines),
+        (headings[6], [f"- {line}" for line in uncertainty_lines]),
+        (headings[7], promotion_lines),
+        (headings[8], [strings["review_before_promotion"]]),
     ]
 
     parts: list[str] = []

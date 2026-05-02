@@ -14,8 +14,11 @@ from core.bridge.blocks import (
 from core.protocol.contracts import BRIDGE_START, ROOT_ENTRY_CANDIDATES
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     EnvironmentContractError,
+    enforce_package_support_gate,
     exit_with_cli_error,
     find_recovery_workspace,
     LockBusyError,
@@ -98,7 +101,14 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     requested_storage_mode = validate_storage_mode(args.storage_mode) if args.storage_mode else None
     try:
@@ -116,35 +126,53 @@ def main() -> None:
                 requested_storage_mode=requested_storage_mode,
             )
         except StorageResolutionError as exc:
-            exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+            exit_with_cli_error(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=str(exc),
+                payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+            )
     if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            payload=cli_failure_payload("no_project_root", error="No RecallLoom project root found."),
+        )
 
     try:
         with workspace_write_lock(workspace.project_root, "remove_context.py"):
             storage_root = workspace.storage_root
             if storage_root == workspace.project_root:
+                message = "Refusing to remove RecallLoom because storage_root resolves to the project root."
                 exit_with_cli_error(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
-                    message="Refusing to remove RecallLoom because storage_root resolves to the project root.",
+                    message=message,
+                    payload=cli_failure_payload("invalid_storage_boundary", error=message),
                 )
 
             if storage_root.parent != workspace.project_root:
+                message = "Refusing to remove RecallLoom because storage_root is not a direct child of the project root."
                 exit_with_cli_error(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
-                    message="Refusing to remove RecallLoom because storage_root is not a direct child of the project root.",
+                    message=message,
+                    payload=cli_failure_payload("invalid_storage_boundary", error=message),
                 )
 
             if storage_root.name not in {".recallloom", "recallloom"}:
+                message = f"Refusing to remove unexpected storage root: {storage_root}"
                 exit_with_cli_error(
                     parser,
                     json_mode=args.json,
                     exit_code=2,
-                    message=f"Refusing to remove unexpected storage root: {storage_root}",
+                    message=message,
+                    payload=cli_failure_payload("invalid_storage_boundary", error=message),
                 )
 
             removed_storage = False
@@ -173,16 +201,30 @@ def main() -> None:
                     json_mode=args.json,
                     exit_code=3,
                     message="\n".join(detail_lines),
+                    payload=cli_failure_payload(
+                        "malformed_managed_file" if malformed_bridge_targets else "invalid_prepared_input",
+                        error="\n".join(detail_lines),
+                        details={
+                            "bridge_targets": bridge_targets,
+                            "malformed_bridge_targets": malformed_bridge_targets,
+                        },
+                    ),
                 )
 
             if args.yes and unknown_assets and not args.force:
+                message = (
+                    "Refusing to remove RecallLoom because the storage root contains non-managed assets. "
+                    "Review the reported paths or re-run with --force."
+                )
                 exit_with_cli_error(
                     parser,
                     json_mode=args.json,
                     exit_code=3,
-                    message=(
-                        "Refusing to remove RecallLoom because the storage root contains non-managed assets. "
-                        "Review the reported paths or re-run with --force."
+                    message=message,
+                    payload=cli_failure_payload(
+                        "invalid_prepared_input",
+                        error=message,
+                        details={"unknown_assets": unknown_assets},
                     ),
                 )
 
@@ -196,6 +238,7 @@ def main() -> None:
                             json_mode=args.json,
                             exit_code=2,
                             message=str(exc),
+                            payload=cli_failure_payload_for_exception(exc, default_reason="malformed_managed_file"),
                         )
                     except LockBusyError as exc:
                         exit_with_cli_error(
@@ -203,13 +246,16 @@ def main() -> None:
                             json_mode=args.json,
                             exit_code=3,
                             message=str(exc),
+                            payload=cli_failure_payload("write_lock_busy", error=str(exc)),
                         )
                     except OSError as exc:
+                        message = f"Filesystem error: {exc}"
                         exit_with_cli_error(
                             parser,
                             json_mode=args.json,
                             exit_code=2,
-                            message=f"Filesystem error: {exc}",
+                            message=message,
+                            payload=cli_failure_payload("damaged_sidecar", error=message),
                         )
 
                 tombstone = unique_tombstone_path(workspace.project_root, storage_root.name)
@@ -244,10 +290,36 @@ def main() -> None:
                 "removed_git_exclude_block": removed_git_exclude_block,
                 "exclude_cleanup_error": exclude_cleanup_error,
             }
+            if storage_cleanup_error:
+                exit_with_cli_error(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=storage_cleanup_error,
+                    payload=cli_failure_payload(
+                        "storage_cleanup_incomplete",
+                        error=storage_cleanup_error,
+                        details=payload,
+                        extra=payload,
+                    ),
+                )
     except LockBusyError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=3, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=3,
+            message=str(exc),
+            payload=cli_failure_payload("write_lock_busy", error=str(exc)),
+        )
     except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        message = f"Filesystem error: {exc}"
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("damaged_sidecar", error=message),
+        )
 
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))

@@ -5,6 +5,7 @@
 - Project-Local Overrides
 - Cold Start
 - Choose the Write Set
+- Layered Write Judgment
 - End-of-Day Update
 - Compression
 - Archive
@@ -47,6 +48,14 @@ Use this flow whenever resuming a project with an existing RecallLoom structure.
 8. Check whether newer artifacts exist than the maintained context files when freshness is uncertain or before a major write.
 9. Prefer verified newer evidence over stale continuity files.
 
+Read-side helpers may now also expose:
+
+- `sidecar_trust_state`
+- `continuity_drift_risk_level`
+- `allowed_operation_level`
+
+Treat those as routing guidance for review vs write-readiness. They do not change the protocol file contract by themselves.
+
 Cold start is for orientation, not for automatic rewriting.
 Cold start should restore and recommend first.
 It should not automatically continue `next_step` or execute unfinished project work without clear user confirmation.
@@ -65,13 +74,120 @@ Preflight guidance should expose two layers:
 
 Typical mapping:
 
+- `stable_rule` for durable workflow rules or source-of-truth routing that should be restored on the next cold start
 - `STORAGE_ROOT/rolling_summary.md` for durable current-state changes
+- `current_state` for what is true right now, including active judgments, risks, and the next step
 - `STORAGE_ROOT/context_brief.md` for framing or phase changes
+- `milestone_evidence` for releases, completed validations, or other durable milestones
 - daily log for milestone events
 
 Daily logs should only become write targets when the current session actually creates a new milestone entry.
+Cross-day carryover by itself does not make the daily log a default write target.
+
+If trust is only structural or drift risk is medium/high, prefer review-first or `no_write` over pushing ahead with a higher-risk mutation.
 
 If only one file needs updating, update only that file.
+
+Default exit modes before a write should stay explicit:
+
+- `no_write` when no durable project fact changed
+- `merge_current_state` when only current-state continuity changed
+- `append_milestone` when the session created milestone evidence
+- `defer` when the discussion is still unstable
+- `confirm` when the action is historical, cross-boundary, or otherwise needs explicit confirmation
+- `blocked` when the sidecar or safety contract is not trustworthy enough to write
+
+## Layered Write Judgment
+
+The agent is responsible for judging the meaning of prepared continuity content.
+Helpers may provide safe write context, freshness state, revision guards, and static write-tier guidance, but helpers must not classify the content or decide the semantic layer for the agent.
+
+Use this playbook before editing `context_brief.md`, `rolling_summary.md`, or a daily log.
+
+### Five Judgment Questions
+
+Ask these in order:
+
+1. Does this contain a new durable fact?
+   - If not, choose `no_write`.
+2. Would a future cold start need this before reading current state?
+   - If yes, consider `stable_rule`.
+3. Does this describe what is true now, including phase, risk, active judgment, or next step?
+   - If yes, consider `current_state`.
+4. Does this record completed, accepted, or validated evidence from this session?
+   - If yes, consider `milestone_evidence`.
+5. Is the layer boundary uncertain?
+   - If yes, choose `defer` or `confirm` instead of guessing.
+
+### Layer Signals
+
+| Candidate type | Default target | Positive signal | Common wrong move |
+|---|---|---|---|
+| `stable_rule` | `context_brief.md` | Long-lived workflow rule, source-of-truth routing, project boundary, cross-session recovery fact | Putting the rule only in `rolling_summary.md` because it was discovered during current work |
+| `current_state` | `rolling_summary.md` | Current phase, active risk, active judgment, current blocker, next step | Promoting short-lived state into `context_brief.md` because it feels important |
+| `milestone_evidence` | daily log | Accepted decision, completed validation, release, handoff milestone | Using the daily log as the only place where the next session can recover current state |
+| `no_write` | no file | Explanation of existing facts, trivial read, repeated confirmation, no durable change | Writing just because the conversation happened |
+| `defer` / `confirm` | no file until resolved | Unstable discussion, historical append, cross-boundary action, unclear ownership | Guessing a layer and writing anyway |
+
+### Conflict Rules
+
+When signals point to more than one layer, do not vote by keyword.
+Use this order:
+
+1. Decide whether nothing should be written.
+   If there is no new durable fact, use `no_write`.
+2. Extract stable rules first.
+   A stable rule should contain only the durable rule, source-of-truth route, boundary, or workflow constraint.
+3. Extract current state next.
+   Current state should contain only what matters for the next active step, risk, phase, or judgment.
+4. Extract milestone evidence last.
+   A daily log entry records what happened; it does not replace the stable rule or the current-state snapshot.
+5. Stop on low confidence.
+   If the agent cannot explain the layer in one sentence, choose `defer` or `confirm`.
+
+Multi-layer overlap means `multi_layer_split`: split different facts across layers.
+Do not copy the same sentence into multiple files.
+
+### Lightweight Self-Review
+
+The self-review should stay short and can remain internal unless the user asks, the write is high-risk, or the session is being handed off.
+
+```text
+Candidate content: <one-sentence summary>
+Recommended layer: <no_write | stable_rule | current_state | milestone_evidence | multi_layer_split | defer | confirm>
+Reason: <one sentence about recovery priority, current truth, or evidence value>
+Split note: <write "none" or list what each layer carries>
+```
+
+### Anonymized Calibration Cases
+
+These cases are calibration examples for agent judgment.
+They are not project facts and should not be copied into a workspace sidecar.
+
+| Case | Correct judgment | Wrong judgment to avoid |
+|---|---|---|
+| A team confirms that all customer deliveries must complete one approval checklist before handoff | `stable_rule -> context_brief.md`; if the decision was accepted in this session, also record milestone evidence | Only writing the rule into `rolling_summary.md` |
+| The current delivery still has two approval checks left and the next step is to finish them | `current_state -> rolling_summary.md` | Promoting a short-lived task into `context_brief.md` |
+| A validation batch passed today | `milestone_evidence -> daily log`; if it changes current readiness, summarize that current state | Putting validation details into `context_brief.md` |
+| The user suggests a possible workflow change but does not approve it | `defer` or a current-state open question | Writing the unapproved idea as a stable rule |
+| The agent only explains an existing rule and no new fact is created | `no_write` | Appending a daily log entry just because the explanation happened |
+| A one-off command, temporary path, or short debugging action is used | Usually `no_write`; if it blocks active work, briefly capture current state | Recording the temporary action as a stable rule or milestone |
+| A long-term rule is accepted and a short-term follow-up task is created in the same session | `multi_layer_split`: rule to `context_brief.md`, follow-up to `rolling_summary.md`, accepted decision to daily log if milestone-worthy | Copying one combined sentence into every layer |
+| A research chapter adopts a source-citation rule, but the current chapter still lacks sources | Rule to `context_brief.md`, current gap to `rolling_summary.md`, accepted decision to daily log if needed | Only writing the daily log and losing the rule on cold start |
+| A design review entry moves from notes into a fixed index | Entry route to `context_brief.md`, current sync task to `rolling_summary.md` | Treating the fixed route as a one-time task and losing it later |
+| A date-sensitive append matches the heuristic suggestion, but local rollover or timezone notes still require a human check | `confirm`: keep the proposed date visible and require explicit review before writing | Treating a matching preferred date as automatic approval |
+
+## Package Support Gate
+
+Before a helper proceeds, it may perform the daily package-support check described in `package-support-policy.md`.
+
+- `supported`, `upgrade_recommended`, and `unknown_offline` do not block actions
+- `readonly_only` blocks mutating helpers but permits diagnostic and read-only helpers
+- `diagnostic_only` permits diagnostic helpers only
+- dispatcher may share the same-day support payload through `RECALLLOOM_SUPPORT_STATE_JSON`, but child helpers still authorize from cache or advisory state instead of trusting env payloads alone
+- support cache is user-scoped and package-path-scoped, never stored in the project sidecar
+
+If a package support gate blocks the action, stop and surface the returned failure contract instead of falling back to manual file edits.
 
 When deterministic write safety matters, use this flow:
 
@@ -80,7 +196,7 @@ When deterministic write safety matters, use this flow:
 3. use `commit_context_file.py` for `rolling_summary.md`, `context_brief.md`, or `update_protocol.md`
 4. use `append_daily_log_entry.py` for daily-log milestone entries
 
-In the current `0.3.3` release line, those revision-aware write helpers do not independently reread `update_protocol.md` before every write.
+In the current package line, those revision-aware write helpers do not independently reread `update_protocol.md` before every write.
 
 ## End-of-Day Update
 
@@ -94,6 +210,11 @@ Typical order:
 1. rolling summary
 2. `context_brief.md` if needed
 3. today's daily log
+
+If the day simply carried over and no milestone happened, the valid result can still be:
+
+1. update only `rolling_summary.md`
+2. or exit with `no_write`
 
 Always leave a clear next-step note when possible.
 

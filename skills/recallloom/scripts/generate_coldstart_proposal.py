@@ -22,11 +22,15 @@ from core.coldstart.structured import (
 from core.protocol.contracts import FILE_KEYS
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     DAILY_LOGS_DIRNAME,
     EnvironmentContractError,
+    enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
+    exit_with_failure_contract,
     find_recallloom_root,
     latest_active_daily_log,
     load_workspace_state,
@@ -83,14 +87,33 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     try:
         workspace = find_recallloom_root(args.path)
     except (StorageResolutionError, ConfigContractError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     if workspace is None:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=1, message="No RecallLoom project root found.")
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=1,
+            message="No RecallLoom project root found.",
+            reason="no_project_root",
+        )
 
     try:
         host_memory_adapter = build_host_memory_adapter(
@@ -102,26 +125,51 @@ def main() -> None:
             confidence=args.host_memory_confidence,
         )
     except ValueError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            reason="invalid_prepared_input",
+        )
 
-    sources = gather_coldstart_sources(
-        workspace.project_root,
-        explicit_sources=args.source,
-        include_git_signal=args.include_git_signal,
-        host_memory_adapter=host_memory_adapter,
-    )
+    try:
+        sources = gather_coldstart_sources(
+            workspace.project_root,
+            explicit_sources=args.source,
+            include_git_signal=args.include_git_signal,
+            host_memory_adapter=host_memory_adapter,
+        )
+    except ValueError as exc:
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            reason="invalid_prepared_input",
+        )
     try:
         state = load_workspace_state(workspace.storage_root / FILE_KEYS["state"])
         summary_text = read_text(workspace.storage_root / FILE_KEYS["rolling_summary"])
     except (ConfigContractError, OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
 
     continuity_state, continuity_seeded = continuity_state_for_workspace(
         state=state,
         summary_text=summary_text,
         latest_daily_log_exists=latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME) is not None,
     )
-    proposal_markdown = render_coldstart_proposal(workspace.project_root, sources)
+    proposal_markdown = render_coldstart_proposal(
+        workspace.project_root,
+        sources,
+        workspace_language=workspace.workspace_language,
+    )
     proposal_sections = extract_structured_sections(proposal_markdown, PROPOSAL_SECTION_ALIASES)
     path_recommendation = recommend_coldstart_path(sources)
 

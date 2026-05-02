@@ -10,6 +10,9 @@ from _common import (
     ConfigContractError,
     EnvironmentContractError,
     StorageResolutionError,
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
+    enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
     find_recallloom_root,
@@ -47,8 +50,13 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=str(exc),
-            payload={"start_path": str(start), "found": False},
+            payload=cli_failure_payload(
+                "python_runtime_unavailable",
+                error=str(exc),
+                extra={"start_path": str(start), "found": False},
+            ),
         )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     start = normalize_start_path(args.path)
     try:
@@ -59,7 +67,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=2,
             message=str(exc),
-            payload={"start_path": str(start), "found": False},
+            payload=cli_failure_payload_for_exception(
+                exc,
+                default_reason="damaged_sidecar",
+                extra={"start_path": str(start), "found": False},
+            ),
         )
 
     if workspace is None:
@@ -76,7 +88,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=1,
             message=f"No RecallLoom project root found from {start}.",
-            payload=payload,
+            payload=cli_failure_payload(
+                "no_project_root",
+                error=f"No RecallLoom project root found from {start}.",
+                extra=payload,
+            ),
         )
 
     payload = {

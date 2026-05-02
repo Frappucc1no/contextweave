@@ -7,11 +7,15 @@ import argparse
 import json
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     EnvironmentContractError,
+    enforce_package_support_gate,
     StorageResolutionError,
     ensure_supported_python_version,
     exit_with_cli_error,
+    exit_with_failure_contract,
     find_recovery_project_root,
     load_lock_payload,
     pid_is_alive,
@@ -53,7 +57,14 @@ def main() -> None:
     try:
         ensure_supported_python_version()
     except EnvironmentContractError as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=str(exc))
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload("python_runtime_unavailable", error=str(exc)),
+        )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     try:
         project_root = resolve_project_root(args.path)
@@ -62,11 +73,26 @@ def main() -> None:
         lock_payload = load_lock_payload(lock_path) if lock_exists else {}
         lock_pid = lock_payload.get("pid")
         pid_alive = bool(isinstance(lock_pid, int) and pid_is_alive(lock_pid))
+    except (StorageResolutionError, ConfigContractError) as exc:
+        exit_with_cli_error(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+        )
     except (OSError, UnicodeDecodeError) as exc:
-        exit_with_cli_error(parser, json_mode=args.json, exit_code=2, message=f"Filesystem error: {exc}")
+        message = f"Filesystem error: {exc}"
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            reason="damaged_sidecar",
+        )
 
     if args.yes and lock_exists and pid_alive and not args.force:
-        exit_with_cli_error(
+        exit_with_failure_contract(
             parser,
             json_mode=args.json,
             exit_code=3,
@@ -74,11 +100,27 @@ def main() -> None:
                 "Refusing to remove the write lock because the recorded pid still appears alive. "
                 "Re-run with --force only if you are sure the lock is stale."
             ),
+            reason="write_lock_busy",
+            details={
+                "project_root": str(project_root),
+                "lock_path": str(lock_path),
+                "lock_payload": lock_payload,
+            },
         )
 
     removed = False
     if args.yes and lock_exists:
-        lock_path.unlink()
+        try:
+            lock_path.unlink()
+        except OSError as exc:
+            message = f"Filesystem error while removing write lock {lock_path}: {exc}"
+            exit_with_failure_contract(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=message,
+                reason="damaged_sidecar",
+            )
         removed = True
 
     payload = {

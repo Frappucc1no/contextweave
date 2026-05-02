@@ -27,12 +27,13 @@ For package inventory, protocol details, and helper-script behavior, rely on the
 - `package-metadata.json`
 - `references/file-contracts.md`
 - `references/operation-playbooks.md`
+- `references/package-support-policy.md`
 - `references/protocol.md`
 
 ## Package Facts
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- package version: `0.3.3`
+- package version: `0.3.4`
 - protocol version: `1.0`
 - supported protocol versions:
   - `1.0`
@@ -51,6 +52,20 @@ For package inventory, protocol details, and helper-script behavior, rely on the
   - `GEMINI.md`
   - `.github/copilot-instructions.md`
 <!-- RecallLoom metadata sync end: runtime-assumptions -->
+
+## Package Support Gate
+
+RecallLoom package support is separate from project sidecar protocol compatibility.
+
+Helpers perform a lightweight daily package-support check, scoped by installed package path and cached in the user cache.
+Support state is not written into project `.recallloom/`.
+
+If the current package is `readonly_only`, mutating helpers are blocked while diagnostic and read-only helpers remain available.
+If it is `diagnostic_only`, only diagnostic helpers should continue.
+If the advisory cannot be refreshed and no usable cache exists, helpers use `unknown_offline` and do not hard-block solely because the network failed.
+
+When the gate blocks an action, it returns the shared failure contract with `blocked_reason: package_support_blocked` and a `package_support` object.
+See `references/package-support-policy.md` for the advisory schema, action levels, cache behavior, and environment overrides.
 
 ## When To Use It
 
@@ -189,18 +204,18 @@ See `references/operation-playbooks.md` for the full flow.
 
 ## Current Read-Side Helpers
 
-The current `0.3.3` line now has three read-side helper directions worth knowing:
+The current `0.3.4` line now has three read-side helper directions worth knowing:
 
 - `preflight_context_check.py`
   - revision-aware freshness review before formal writes
-  - returns handoff-first digests and suggested read targets
+  - returns handoff-first digests, suggested read targets, write-tier guidance, and trust/drift state
 - `summarize_continuity_status.py`
   - ambient continuity status surface using the same freshness baseline
-  - returns the same handoff-first digest family for quick orientation
+  - returns the same handoff-first digest family plus shared workday-state and trust/drift guidance for quick orientation
 - `query_continuity.py`
   - read-only continuity recall surface
   - returns answer-first recall with `answer`, supporting citations, and a risk/freshness note
-  - also returns hits, token estimate, budget hint, freshness/conflict state, an output variant label, and override review targets
+  - also returns hits, token estimate, budget hint, freshness/conflict state, trust/drift state, an output variant label, and override review targets
   - daily-log citations include explicit `date` values
   - prefers current-state files over historical daily logs when match strength ties
   - defaults to the quick freshness path, but can explicitly upgrade to a fuller freshness scan when needed
@@ -221,11 +236,52 @@ All attach-safe continuity text returned through these read-side surfaces is exp
 
 Practical interpretation:
 
-- New stable fact or next-step change: usually `rolling_summary.md`
+- `stable_rule`: usually `context_brief.md`
+- `current_state`: usually `rolling_summary.md`
+- New current-state fact or next-step change: usually `rolling_summary.md`
 - High-level mission or phase change: maybe `context_brief.md`
+- `milestone_evidence`: daily log only when a milestone actually happened
 - Deliverable completion or end-of-day milestone: daily log
 
+Default exits before any write should stay explicit:
+
+- `no_write` is a normal successful result
+- `merge_current_state` updates `rolling_summary.md`
+- `append_milestone` appends to the daily log
+- `confirm` and `blocked` stop automatic writes rather than guessing
+
+Read-side trust notes:
+
+- `sidecar_trust_state` stays in helper JSON, not in protocol `1.0`
+- `continuity_drift_risk_level` is a review signal, not proof that the sidecar is damaged
+- `allowed_operation_level` helps hosts route low-risk read vs review-first vs write-after-preflight flows
+
 Project-local overrides may narrow the default read order, write order, or archive behavior, but they do not replace the core file contract.
+
+## Agent Layered Write Judgment
+
+Before writing continuity content, the agent should make the layer decision itself.
+Helpers can provide safe write context and static write-tier guidance, but they must not replace agent judgment about what the content means.
+
+Use this quick internal check before editing managed files:
+
+1. Is there a new durable fact, or is `no_write` the right result?
+2. If writing is needed, is the main content a `stable_rule`, `current_state`, or `milestone_evidence`?
+3. Does the event contain different facts that need a `multi_layer_split`?
+4. Does the target layer already contain the same fact, so the right action is merge instead of duplicate?
+5. Is the layer uncertain enough to `defer` or `confirm` rather than guess?
+
+Layer defaults:
+
+- `stable_rule`: long-lived workflow rules, source-of-truth routing, project boundaries, or recovery facts that should be known before reading current state. Default target: `context_brief.md`.
+- `current_state`: what is true now, including current phase, active risks, active judgments, and next steps. Default target: `rolling_summary.md`.
+- `milestone_evidence`: completed validations, approvals, releases, accepted decisions, or other durable evidence. Default target: daily log.
+- `no_write`, `defer`, and `confirm` are valid outcomes when no durable fact changed, the discussion is unstable, or the boundary needs explicit user approval.
+
+When more than one layer is valid, split different facts across layers.
+Do not copy the same sentence into multiple files.
+
+For the detailed rules, conflict order, self-review template, and anonymized calibration cases, see `references/operation-playbooks.md`.
 
 For protocol `1.0`, `update_protocol.md` is a human-reviewed override layer.
 Preflight, archive guidance, and thin-bridge guidance should surface it clearly, but helpers do not automatically execute its natural-language rules.

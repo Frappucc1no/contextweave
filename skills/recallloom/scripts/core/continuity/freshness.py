@@ -244,12 +244,17 @@ def continuity_digest_bundle(
     summary_text: str,
     latest_daily_log_text: str | None = None,
 ) -> dict:
-    next_step_text = extract_section_text(summary_text, "next_step")
-    risks_text = extract_section_text(summary_text, "risks_open_questions")
-    active_task_digest = (
-        None if is_effectively_empty_summary_next_step(next_step_text) else digest_excerpt(next_step_text)
-    )
-    blocked_digest = digest_excerpt(risks_text)
+    summary_is_empty_shell_template = summary_matches_empty_shell_template(summary_text)
+    if summary_is_empty_shell_template:
+        active_task_digest = None
+        blocked_digest = None
+    else:
+        next_step_text = extract_section_text(summary_text, "next_step")
+        risks_text = extract_section_text(summary_text, "risks_open_questions")
+        active_task_digest = (
+            None if is_effectively_empty_summary_next_step(next_step_text) else digest_excerpt(next_step_text)
+        )
+        blocked_digest = digest_excerpt(risks_text)
 
     latest_relevant_log_digest = None
     if latest_daily_log_text:

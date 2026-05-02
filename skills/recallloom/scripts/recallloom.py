@@ -10,11 +10,100 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+_BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION = "3.10"
+
+
+def _bootstrap_failure_language() -> str:
+    lang = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or ""
+    return "zh-CN" if lang.lower().startswith("zh") else "en"
+
+
+def _bootstrap_minimum_python_version() -> tuple[tuple[int, ...], str]:
+    fallback_parts = tuple(int(part) for part in _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION.split("."))
+    metadata_path = Path(__file__).resolve().parent.parent / "package-metadata.json"
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        raw = _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION
+    else:
+        raw = payload.get("minimum_python_version", _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION)
+        if not isinstance(raw, str) or not raw.strip():
+            raw = _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION
+    parts = raw.strip().split(".")
+    if not parts or any(not part.isdigit() for part in parts):
+        return fallback_parts, _BOOTSTRAP_DEFAULT_MINIMUM_PYTHON_VERSION
+    normalized = tuple(int(part) for part in parts)
+    return normalized, ".".join(str(part) for part in normalized)
+
+
+def _bootstrap_runtime_contract(minimum_text: str) -> dict:
+    return {
+        "blocked": True,
+        "blocked_reason": "python_runtime_unavailable",
+        "recoverability": "retryable",
+        "surface_level": "user_safe",
+        "trust_effect": "none",
+        "next_actions": ["find_compatible_python", "report_blocked_runtime"],
+        "user_message": {
+            "en": (
+                "RecallLoom cannot start yet because this environment does not provide "
+                f"Python {minimum_text} or newer."
+            ),
+            "zh-CN": f"当前环境还不能启动 RecallLoom，因为这里没有可用的 Python {minimum_text}+ 运行时。",
+        },
+        "operator_note": {
+            "en": f"Find or point the host at a compatible Python {minimum_text}+ interpreter before retrying.",
+            "zh-CN": f"请先找到或指定兼容的 Python {minimum_text}+ 解释器，再重试。",
+        },
+    }
+
+
+def _bootstrap_runtime_payload(message: str, minimum_text: str) -> dict:
+    language = _bootstrap_failure_language()
+    contract = _bootstrap_runtime_contract(minimum_text)
+    return {
+        "ok": False,
+        "blocked": contract["blocked"],
+        "blocked_reason": contract["blocked_reason"],
+        "recoverability": contract["recoverability"],
+        "surface_level": contract["surface_level"],
+        "trust_effect": contract["trust_effect"],
+        "next_actions": list(contract["next_actions"]),
+        "user_message": contract["user_message"][language],
+        "operator_note": contract["operator_note"][language],
+        "error": message,
+    }
+
+
+def _exit_if_runtime_unsupported() -> None:
+    minimum_parts, minimum_text = _bootstrap_minimum_python_version()
+    current = sys.version_info[: len(minimum_parts)]
+    if current >= minimum_parts:
+        return
+    message = (
+        "RecallLoom helper scripts require "
+        f"Python {minimum_text}+; current interpreter is "
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    )
+    if "--json" in sys.argv[1:]:
+        print(json.dumps(_bootstrap_runtime_payload(message, minimum_text), ensure_ascii=False, indent=2))
+    else:
+        print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+
+_exit_if_runtime_unsupported()
+
+from core.continuity.workday import RECOMMENDATION_TYPES, describe_workday_guidance
+from core.failure.contracts import failure_payload, preferred_failure_language
 from core.protocol.contracts import ROOT_ENTRY_CANDIDATES
+from core.support.policy import action_level_for_dispatcher
 
 from _common import (
     ConfigContractError,
     EnvironmentContractError,
+    enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
 )
@@ -22,81 +111,6 @@ from _common import (
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 SUPPORTED_BRIDGE_TARGETS = [path.as_posix() for path in ROOT_ENTRY_CANDIDATES]
-
-FAILURE_CONTRACTS = {
-    "python_runtime_unavailable": {
-        "blocked": True,
-        "next_actions": ["find_compatible_python", "report_blocked_runtime"],
-        "user_message": {
-            "en": "RecallLoom cannot start yet because this environment does not provide Python 3.10 or newer.",
-            "zh-CN": "当前环境还不能启动 RecallLoom，因为这里没有可用的 Python 3.10+ 运行时。",
-        },
-        "operator_note": {
-            "en": "Find or point the host at a compatible Python 3.10+ interpreter before retrying.",
-            "zh-CN": "请先找到或指定兼容的 Python 3.10+ 解释器，再重试。",
-        },
-    },
-    "not_project_root": {
-        "blocked": False,
-        "next_actions": ["confirm_project_root", "retry_init"],
-        "user_message": {
-            "en": "This path does not look like the project root yet.",
-            "zh-CN": "当前路径还不像真正的项目根目录。",
-        },
-        "operator_note": {
-            "en": "Choose the real project root before retrying initialization.",
-            "zh-CN": "请先切到真实项目根目录，再重试初始化。",
-        },
-    },
-    "damaged_sidecar": {
-        "blocked": False,
-        "next_actions": ["repair_existing_sidecar", "rerun_validate_or_init"],
-        "user_message": {
-            "en": "The existing RecallLoom workspace is not trustworthy yet and needs repair before continuing.",
-            "zh-CN": "当前已有的 RecallLoom 工作区还不可信，需要先修复后再继续。",
-        },
-        "operator_note": {
-            "en": "Do not hand-build or patch managed files blindly; repair the damaged sidecar first.",
-            "zh-CN": "不要手工拼接或盲改 managed 文件；请先修复 damaged sidecar。",
-        },
-    },
-    "dual_sidecar_conflict": {
-        "blocked": False,
-        "next_actions": ["resolve_sidecar_conflict", "rerun_validate_or_init"],
-        "user_message": {
-            "en": "This project has conflicting RecallLoom sidecars, so RecallLoom should stop instead of guessing.",
-            "zh-CN": "当前项目存在冲突的 RecallLoom sidecar，应该先停下而不是继续猜。",
-        },
-        "operator_note": {
-            "en": "Resolve the hidden-vs-visible sidecar conflict before retrying.",
-            "zh-CN": "请先处理隐藏 sidecar 与可见 sidecar 的冲突，再重试。",
-        },
-    },
-    "attach_scan_blocked": {
-        "blocked": False,
-        "next_actions": ["revise_bridge_text", "retry_bridge"],
-        "user_message": {
-            "en": "The current bridge text did not pass the safety check.",
-            "zh-CN": "当前 bridge 文本没有通过安全检查。",
-        },
-        "operator_note": {
-            "en": "Adjust the bridge wording without weakening the attached-text safety rules.",
-            "zh-CN": "请调整 bridge 文案，但不要削弱 attached-text safety 规则。",
-        },
-    },
-    "no_project_root": {
-        "blocked": False,
-        "next_actions": ["rl-init", "choose_project_root"],
-        "user_message": {
-            "en": "This project has not been attached to RecallLoom yet.",
-            "zh-CN": "当前项目还没有接入 RecallLoom。",
-        },
-        "operator_note": {
-            "en": "Initialize RecallLoom at the correct project root before using status or bridge flows.",
-            "zh-CN": "请先在正确的项目根目录初始化 RecallLoom，再使用 status 或 bridge 流程。",
-        },
-    },
-}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -207,14 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     resume_parser.add_argument(
         "--session-intent",
-        choices=[
-            "backfill_previous_day_closure",
-            "close_previous_day_then_start_new_day",
-            "continue_active_day",
-            "log_not_needed_for_this_session",
-            "review_date_before_append",
-            "start_new_active_day",
-        ],
+        choices=sorted(RECOMMENDATION_TYPES),
         help="Optional explicit session-intent hint using one of the recommendation types.",
     )
     resume_parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
@@ -249,14 +256,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     status_parser.add_argument(
         "--session-intent",
-        choices=[
-            "backfill_previous_day_closure",
-            "close_previous_day_then_start_new_day",
-            "continue_active_day",
-            "log_not_needed_for_this_session",
-            "review_date_before_append",
-            "start_new_active_day",
-        ],
+        choices=sorted(RECOMMENDATION_TYPES),
         help="Optional explicit session-intent hint using one of the recommendation types.",
     )
     status_parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
@@ -293,29 +293,20 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _preferred_language() -> str:
-    lang = os.environ.get("LC_ALL") or os.environ.get("LC_MESSAGES") or os.environ.get("LANG") or ""
-    return "zh-CN" if lang.lower().startswith("zh") else "en"
+    return preferred_failure_language(os.environ)
 
 
-def _contract_payload(reason: str) -> dict:
-    contract = FAILURE_CONTRACTS[reason]
-    language = _preferred_language()
-    payload = {
-        "blocked": contract["blocked"],
-        "blocked_reason": reason,
-        "next_actions": contract["next_actions"],
-        "user_message": contract["user_message"][language],
-    }
-    operator_note = contract.get("operator_note")
-    if operator_note:
-        payload["operator_note"] = operator_note[language]
-    return payload
+def _contract_payload(reason: str, *, error: str | None = None) -> dict:
+    return failure_payload(reason, language=_preferred_language(), error=error)
 
 
 def _infer_helper_failure_reason(helper_name: str, message: str) -> str | None:
     lowered = message.lower()
     if (
-        "Python 3.10+" in message
+        (
+            "recallloom helper scripts require python " in lowered
+            and "current interpreter is " in lowered
+        )
         or "runtime bootstrap failed" in message
         or "minimum_python_version" in message
     ):
@@ -337,13 +328,20 @@ def _infer_helper_failure_reason(helper_name: str, message: str) -> str | None:
         or "conflicting or partial recallloom sidecar" in lowered
     ):
         return "dual_sidecar_conflict"
+    if "rerun preflight before writing" in lowered or "rerun preflight before appending" in lowered:
+        return "stale_write_context"
+    if "allow-historical" in lowered or "non-latest daily log" in lowered:
+        return "historical_append_requires_confirmation"
     if (
         "missing required file" in lowered
         or "missing required file-state" in lowered
         or "invalid state.json" in lowered
+        or "missing required section markers" in lowered
+        or "duplicate section markers" in lowered
+        or "unknown section markers" in lowered
         or any(token in lowered for token in ("partial", "damaged", "symlink", "non-directory"))
     ):
-        return "damaged_sidecar"
+        return "malformed_managed_file" if "section markers" in lowered else "damaged_sidecar"
     return None
 
 
@@ -357,7 +355,7 @@ def _normalize_helper_error(helper_name: str, payload: dict) -> dict:
     reason = _infer_helper_failure_reason(helper_name, message)
     if reason is None:
         return normalized
-    normalized.update(_contract_payload(reason))
+    normalized.update(_contract_payload(reason, error=message))
     return normalized
 
 
@@ -386,11 +384,14 @@ def _run_helper_json(
             if proc.stdout:
                 print(proc.stdout, end="")
                 raise SystemExit(proc.returncode)
+            message = proc.stderr.strip() or f"{helper_name} failed."
+            reason = _infer_helper_failure_reason(helper_name, message) or "damaged_sidecar"
             exit_with_cli_error(
                 parser,
                 json_mode=True,
                 exit_code=proc.returncode,
-                message=proc.stderr.strip() or f"{helper_name} failed.",
+                message=message,
+                payload=_contract_payload(reason, error=message),
             )
         error_message = (
             parsed_error.get("error")
@@ -402,15 +403,21 @@ def _run_helper_json(
             json_mode=False,
             exit_code=proc.returncode,
             message=error_message,
+            payload=_contract_payload(
+                _infer_helper_failure_reason(helper_name, error_message) or "damaged_sidecar",
+                error=error_message,
+            ),
         )
     try:
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
+        message = f"{helper_name} returned invalid JSON: {exc}"
         exit_with_cli_error(
             parser,
             json_mode=True,
             exit_code=2,
-            message=f"{helper_name} returned invalid JSON: {exc}",
+            message=message,
+            payload=_contract_payload("registry_contract_invalid", error=message),
         )
     raise AssertionError("unreachable")
 
@@ -498,11 +505,12 @@ def _print_resume_summary(payload: dict) -> None:
         print(f"  - {action}")
     workday = payload.get("workday")
     if isinstance(workday, dict):
-        print(f"Workday recommendation: {workday.get('recommendation_type')}")
-        print(f"Suggested date: {workday.get('suggested_date')}")
+        guidance = describe_workday_guidance(workday, always_show=False)
+        if guidance:
+            print(f"Workday guidance: {guidance}")
 
 
-def _handle_init(parser, args: argparse.Namespace) -> None:
+def _handle_init(parser, args: argparse.Namespace, *, support: dict) -> None:
     init_args = [args.target]
     if args.tool_name:
         init_args.extend(["--tool-name", args.tool_name])
@@ -526,11 +534,13 @@ def _handle_init(parser, args: argparse.Namespace) -> None:
         json_mode_on_failure=args.json,
     )
     if not init_payload.get("project_root") or not init_payload.get("storage_root"):
+        message = "init_context.py returned an incomplete payload."
         exit_with_cli_error(
             parser,
             json_mode=args.json,
             exit_code=2,
-            message="init_context.py returned an incomplete payload.",
+            message=message,
+            payload=_contract_payload("registry_contract_invalid", error=message),
         )
 
     validate_payload = _run_helper_json(
@@ -543,11 +553,13 @@ def _handle_init(parser, args: argparse.Namespace) -> None:
     bridge_payload = None
     if args.bridge:
         if not args.yes:
+            message = "--bridge requires --yes. Bridge application stays explicit."
             exit_with_cli_error(
                 parser,
                 json_mode=args.json,
                 exit_code=2,
-                message="--bridge requires --yes. Bridge application stays explicit.",
+                message=message,
+                payload=_contract_payload("invalid_prepared_input", error=message),
             )
         bridge_payload = _run_helper_json(
             parser,
@@ -573,6 +585,7 @@ def _handle_init(parser, args: argparse.Namespace) -> None:
         "bridge_candidates": bridge_candidates,
         "bridge_applied": bridge_payload.get("results") if bridge_payload else None,
         "suggested_next_actions": _suggested_next_actions(bridge_candidates=bridge_candidates),
+        "package_support": support,
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -593,9 +606,15 @@ def main() -> None:
             message=str(exc),
             payload=_contract_payload("python_runtime_unavailable"),
         )
+    support = enforce_package_support_gate(
+        parser,
+        json_mode=getattr(args, "json", False),
+        action_name=f"recallloom.py {args.command}",
+        action_level=action_level_for_dispatcher(args.command),
+    )
 
     if args.command == "init":
-        _handle_init(parser, args)
+        _handle_init(parser, args, support=support)
         return
 
     if args.command == "validate":
@@ -606,6 +625,7 @@ def main() -> None:
                 helper_args=[args.target],
                 json_mode_on_failure=True,
             )
+            payload["package_support"] = support
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             _run_helper_passthrough(helper_name="validate_context.py", helper_args=[args.target])
@@ -622,6 +642,7 @@ def main() -> None:
             )
             if args.command == "resume":
                 payload = _resume_payload(payload)
+            payload["package_support"] = support
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             if args.command == "resume":
@@ -653,6 +674,7 @@ def main() -> None:
                 helper_args=helper_args,
                 json_mode_on_failure=True,
             )
+            payload["package_support"] = support
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             _run_helper_passthrough(helper_name="manage_entry_bridge.py", helper_args=helper_args)

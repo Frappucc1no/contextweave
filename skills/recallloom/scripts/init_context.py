@@ -12,6 +12,7 @@ from core.continuity.freshness import (
     continuity_state_for_workspace as shared_continuity_state_for_workspace,
     summary_matches_empty_shell_template as shared_summary_matches_empty_shell_template,
 )
+from core.failure.contracts import failure_payload
 from core.protocol.contracts import (
     BRIDGE_START,
     DEFAULT_WORKSPACE_LANGUAGE,
@@ -29,6 +30,7 @@ from _common import (
     DAILY_LOGS_DIRNAME,
     DEFAULT_STORAGE_MODE,
     EnvironmentContractError,
+    enforce_package_support_gate,
     exit_with_cli_error,
     LockBusyError,
     VISIBLE_STORAGE_MODE,
@@ -154,12 +156,12 @@ def bridge_state_snapshot(workspace, state: dict, timestamp: str) -> tuple[dict,
                 f"Refusing to initialize because {target} contains a malformed managed bridge block ({reason})."
             )
         has_bridge_block = BRIDGE_START in text
-        rel_key = str(rel_path)
+        rel_key = rel_path.as_posix()
         if has_bridge_block:
             next_entries[rel_key] = {
                 "update_protocol_revision_seen": state["update_protocol_revision"],
                 "latest_daily_log_seen": (
-                    str(latest_daily_log.relative_to(workspace.storage_root))
+                    latest_daily_log.relative_to(workspace.storage_root).as_posix()
                     if latest_daily_log is not None
                     else None
                 ),
@@ -349,125 +351,17 @@ def looks_like_project_root(project_root: Path) -> bool:
     return False
 
 
-INIT_FAILURE_CONTRACTS = {
-    "python_runtime_unavailable": {
-        "blocked": True,
-        "next_actions": ["find_compatible_python", "report_blocked_runtime"],
-        "user_message": {
-            "en": "RecallLoom cannot start yet because this environment does not provide Python 3.10 or newer.",
-            "zh-CN": "当前环境还不满足 RecallLoom 的运行前提，需要先找到 Python 3.10 或更高版本。",
-        },
-        "operator_note": {
-            "en": "Find or point the host at a compatible Python 3.10+ interpreter before retrying initialization.",
-            "zh-CN": "先找到或指定兼容的 Python 3.10+ 解释器，再重新执行初始化。",
-        },
-    },
-    "not_project_root": {
-        "blocked": False,
-        "next_actions": ["confirm_project_root", "retry_init"],
-        "user_message": {
-            "en": "This path does not look like the project root yet.",
-            "zh-CN": "当前路径还不像一个项目根目录。",
-        },
-        "operator_note": {
-            "en": "Choose an existing project root before retrying initialization.",
-            "zh-CN": "请先切到真实项目根目录，再重新执行初始化。",
-        },
-    },
-    "damaged_sidecar": {
-        "blocked": False,
-        "next_actions": ["repair_existing_sidecar", "rerun_validate_or_init"],
-        "user_message": {
-            "en": "The existing RecallLoom workspace is not trustworthy yet and needs repair before continuing.",
-            "zh-CN": "现有 RecallLoom 工作区结构还不可信，需要先修复后才能继续。",
-        },
-        "operator_note": {
-            "en": "Do not hand-build managed files as a fallback; repair the existing sidecar first.",
-            "zh-CN": "不要手工伪造或拼接 sidecar 文件；请先修复现有工作区。",
-        },
-    },
-    "dual_sidecar_conflict": {
-        "blocked": False,
-        "next_actions": ["resolve_sidecar_conflict", "rerun_validate_or_init"],
-        "user_message": {
-            "en": "This project has conflicting RecallLoom sidecars, so RecallLoom should stop instead of guessing.",
-            "zh-CN": "当前项目存在冲突的 RecallLoom sidecar，不能继续猜测。",
-        },
-        "operator_note": {
-            "en": "Resolve the hidden-vs-visible sidecar conflict before retrying initialization.",
-            "zh-CN": "请先处理隐藏 sidecar 与可见 sidecar 的冲突，再重新初始化。",
-        },
-    },
-    "invalid_date": {
-        "blocked": False,
-        "next_actions": ["correct_date_input", "retry_init"],
-        "user_message": {
-            "en": "The requested date is not a valid YYYY-MM-DD value.",
-            "zh-CN": "当前给定的日期不是合法的 YYYY-MM-DD 值。",
-        },
-        "operator_note": {
-            "en": "Fix the --date value before retrying initialization.",
-            "zh-CN": "请先修正 --date，再重新执行初始化。",
-        },
-    },
-    "invalid_tool_name": {
-        "blocked": False,
-        "next_actions": ["correct_tool_name", "retry_init"],
-        "user_message": {
-            "en": "The requested tool name is not valid for RecallLoom metadata.",
-            "zh-CN": "当前给定的工具名不符合 RecallLoom 元数据约束。",
-        },
-        "operator_note": {
-            "en": "Choose a valid tool name before retrying initialization.",
-            "zh-CN": "请先改成合法的工具名，再重新执行初始化。",
-        },
-    },
-    "invalid_storage_boundary": {
-        "blocked": False,
-        "next_actions": ["correct_storage_target", "retry_init"],
-        "user_message": {
-            "en": "The requested storage layout is not valid for this project path.",
-            "zh-CN": "当前请求的存储布局与这个项目路径不兼容。",
-        },
-        "operator_note": {
-            "en": "Choose a valid project root and storage layout before retrying initialization.",
-            "zh-CN": "请先确认合法的项目根目录与存储布局，再重新初始化。",
-        },
-    },
-    "reinit_create_daily_log_not_allowed": {
-        "blocked": False,
-        "next_actions": ["use_append_daily_log_entry", "retry_without_create_daily_log"],
-        "user_message": {
-            "en": "This project is already initialized. Create new milestone entries through the daily-log append helper instead.",
-            "zh-CN": "当前项目已经初始化；如需记录新的日志条目，请改用 daily log append helper。",
-        },
-        "operator_note": {
-            "en": "Do not use --create-daily-log during re-initialization of an existing workspace.",
-            "zh-CN": "不要在已初始化工作区上继续使用 --create-daily-log。",
-        },
-    },
-}
-
-
 def init_failure_payload(
     *,
     project_root: Path,
     workspace_language: str,
     reason: str | None = None,
+    error: str | None = None,
 ) -> dict:
     payload = {"project_root": str(project_root), "initialized": False}
     if reason is None:
         return payload
-    contract = INIT_FAILURE_CONTRACTS[reason]
-    payload.update(
-        {
-            "blocked": contract["blocked"],
-            "blocked_reason": reason,
-            "next_actions": contract["next_actions"],
-            "user_message": contract["user_message"][workspace_language],
-            "operator_note": contract["operator_note"][workspace_language],
-        }
-    )
+    payload.update(failure_payload(reason, language=workspace_language, error=error))
     return payload
 
 
@@ -509,6 +403,7 @@ def main() -> None:
                 reason="python_runtime_unavailable",
             ),
         )
+    enforce_package_support_gate(parser, json_mode=args.json)
 
     target_path = Path(args.target).expanduser()
     if not target_path.exists():
