@@ -295,6 +295,9 @@ The initial command surface is:
 - `resume`
 - `validate`
 - `status`
+- `quick-summary`
+- `append`
+- `write`
 - `bridge`
 
 Typical forms:
@@ -302,21 +305,38 @@ Typical forms:
 ```bash
 python scripts/recallloom.py init /absolute/path/to/project
 python scripts/recallloom.py resume /absolute/path/to/project
+python scripts/recallloom.py resume /absolute/path/to/project --fast --json
+python scripts/recallloom.py resume /absolute/path/to/project --full --json
 python scripts/recallloom.py validate /absolute/path/to/project
 python scripts/recallloom.py status /absolute/path/to/project
+python scripts/recallloom.py quick-summary /absolute/path/to/project --json
+python scripts/recallloom.py append /absolute/path/to/project --entry-json '{"work_completed":["Recorded a milestone."],"confirmed_facts":["The current summary is fresh."],"key_decisions":["Keep protocol 1.0."],"risks_blockers":["None."],"recommended_next_step":"Continue from the refreshed summary."}' --json
+python scripts/recallloom.py write /absolute/path/to/project --type current-state --source-file /tmp/prepared-rolling-summary.md --dry-run --json
 python scripts/recallloom.py bridge /absolute/path/to/project --file AGENTS.md --yes
 ```
 
-At the product language level, these can be referred to as:
+Use `resume` or `status` when you want the normal tiered read-plan guidance.
+Ambient `status` and default `resume` JSON payloads expose `read_plan` with `minimal` / `standard` / `comprehensive` tiers, and the top-level `estimated_tokens` mirrors `read_plan.standard.estimated_tokens`.
+Use `resume --fast` for current-state orientation from `state.json` and `rolling_summary.md`.
+Use `resume --full` when stable framing and `update_protocol.md` guidance should be included before action.
+The bounded `resume --fast` / `resume --full` variants use `progressive_read_plan` instead of the ambient `read_plan` envelope.
+Daily-log evidence remains on demand through query helpers instead of being pulled into fast/full resume by default.
+
+For existing `v0.3.4` projects, these dispatcher additions are optional adoption paths.
+They do not require a sidecar protocol upgrade; project sidecars remain protocol `1.0`.
+
+At the product language level, the current stable operator-facing wrapper targets are:
 
 - `rl-init`
 - `rl-resume`
 - `rl-validate`
 - `rl-status`
-- `rl-bridge`
 
-In hosts that support native custom commands, those names can later map directly to real commands.
-In hosts that do not, they still work as stable action names that an agent can interpret and execute through the same underlying workflow.
+In hosts that support native custom commands, those names can map directly to packaged wrappers.
+In hosts that do not, they still work as stable action labels that an agent can interpret and execute through the same underlying workflow.
+
+`rl-bridge` remains the canonical dispatcher/helper action label for bridge work, but this package line does not promise a universal native wrapper, deterministic first-hop routing, or host-wide slash-command support for that label.
+When bridge work matters, the reliable operator surface is still `scripts/recallloom.py bridge ...` or `manage_entry_bridge.py ...`.
 
 This is the command/operator layer.
 It is not the only way users should think about first use.
@@ -415,16 +435,15 @@ The installable package currently ships these user-facing helper scripts:
 ### `recallloom.py`
 
 - Purpose: unified operator-friendly wrapper for the most common RecallLoom workflows
-- Typical use: first entrypoint for init / resume / validate / status / bridge
+- Typical use: first entrypoint for dispatcher subcommands across read-only, mutating, and bridge workflows
 - Writes files: depends on subcommand
 - Safety model: does not replace helper semantics; it orchestrates existing helpers and keeps them as the execution truth
 - Failure-contract note: normalized failure payloads now keep machine-readable routing fields such as `blocked_reason`, `recoverability`, `surface_level`, and `trust_effect`
-- Initial scope:
-  - `init`
-  - `resume`
-  - `validate`
-  - `status`
-  - `bridge`
+- Dispatcher scope:
+  - Read-only: `resume`, `validate`, `status`, `quick-summary`
+  - Mutating: `init`, `append`, `write`
+  - Bridge: `bridge`
+- Wrapper note: this package ships native wrappers for `rl-init`, `rl-resume`, `rl-status`, and `rl-validate`; `rl-bridge` stays a canonical dispatcher/helper label rather than a guaranteed wrapper on every host
 
 ### `install_native_commands.py`
 
@@ -539,11 +558,13 @@ The installable package currently ships these user-facing helper scripts:
 - Writes files: no
 - Safety model: read-only; combines current workspace revision, rolling summary freshness, recommended actions, and workday recommendation without mutating the workspace
 - Snapshot model: includes a structured `continuity_snapshot` payload containing the currently seen workspace revision, summary revision, context-brief revision, update-protocol revision, latest active daily-log cursor, logical workday, confidence, and task type
+- Read-plan schema: ambient `status` and default `resume` JSON payloads include a tiered `read_plan` object with `minimal`, `standard`, and `comprehensive` file sets plus per-tier `estimated_tokens`; the top-level `estimated_tokens` mirrors `read_plan.standard.estimated_tokens`
 - Workday output model: shares the same `workday_state`, carryover default, confirmation flags, and project-local time-policy review behavior as `recommend_workday.py`
 - Trust output model: now also returns `sidecar_trust_state`, `continuity_drift_risk_level`, and `allowed_operation_level`
 - Intent model: accepts the same optional `--session-intent` hint as `recommend_workday.py`, so a status review can incorporate the user's explicit current intent without mutating workspace state
 - Scope note: this helper is an orientation surface, not a write surface; formal writes still require `preflight_context_check.py` plus the normal revision-aware helpers
 - Current read-side note: this helper now shares the same freshness baseline and handoff-first digest fields as `preflight_context_check.py`
+- Progressive-resume boundary: `resume --fast` and `resume --full` intentionally switch to `progressive_read_plan`; they do not return the ambient `read_plan` envelope
 
 ### `generate_coldstart_proposal.py`
 
@@ -623,7 +644,7 @@ This keeps the split clear:
 - Typical use: connect root entry files to RecallLoom continuity files
 - Writes files: yes
 - Safety model: preview-first; only supported root entry files are allowed; malformed existing bridge blocks are rejected fail-closed; the current package line accepts exactly one bridge target per invocation
-- Attach-safety note: bridge text is scanned before apply; obvious prompt overrides, invisible unicode, and secret-exfil patterns hard block the write, while suspicious-but-ambiguous patterns are surfaced as warnings in the scan result
+- Attach-safety note: bridge text is scanned before apply, and the updated entry file is scanned with `scope=full_file`; obvious prompt overrides, invisible unicode, and secret-exfil patterns hard block the write, while suspicious-but-ambiguous patterns are surfaced as warnings in the scan result
 - Failure-contract note: bridge helper failures now return the shared machine-readable failure schema for attached-text safety blocks, invalid targets, malformed bridge blocks, missing continuity files, and write-lock contention
 - Concurrency boundary: do not run concurrently with any other mutating helper on the same project
 

@@ -19,6 +19,8 @@ from _common import (
     ensure_supported_python_version,
     exit_with_cli_error,
     now_iso_timestamp,
+    public_json_payload,
+    public_project_path,
     read_text,
     write_text,
 )
@@ -527,6 +529,25 @@ def install_host(
     }
 
 
+def public_dispatcher_command(command: str, *, project_root: Path) -> str:
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return command
+
+    public_tokens: list[str] = []
+    for token in tokens:
+        if not token or token.startswith("-"):
+            public_tokens.append(token)
+            continue
+        candidate = Path(token).expanduser()
+        if not candidate.is_absolute() and "/" not in token and "\\" not in token:
+            public_tokens.append(token)
+            continue
+        public_tokens.append(public_project_path(token, project_root=project_root) or candidate.name or token)
+    return shlex.join(public_tokens)
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -656,7 +677,17 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        public_payload = public_json_payload(payload, project_root=project)
+        for host_payload in public_payload.get("host_results", []):
+            if not isinstance(host_payload, dict):
+                continue
+            dispatcher_command = host_payload.get("dispatcher_command")
+            if isinstance(dispatcher_command, str):
+                host_payload["dispatcher_command"] = public_dispatcher_command(
+                    dispatcher_command,
+                    project_root=project,
+                )
+        print(json.dumps(public_payload, ensure_ascii=False, indent=2))
     else:
         if not args.yes:
             print(f"Previewed native RecallLoom command wrappers for scope={args.scope}")

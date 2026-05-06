@@ -44,6 +44,7 @@ from _common import (
     find_recallloom_root,
     load_workspace_state,
     now_iso_timestamp,
+    public_json_payload,
     read_text,
     restore_text_snapshot,
     today_iso,
@@ -687,7 +688,13 @@ def main() -> None:
         "ok": True,
     }
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         print(f"Committed {args.file_key} to {target_path}")
 

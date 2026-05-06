@@ -7,6 +7,7 @@ import argparse
 import json
 from pathlib import Path
 
+from core.output.privacy import publicize_json_value
 from core.protocol import contracts as protocol_contracts
 
 
@@ -233,7 +234,8 @@ def main() -> None:
             "checked_files": checked_files,
         }
         if args.json:
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            public_payload = publicize_json_value(payload, project_root=REPO_ROOT)
+            print(json.dumps(public_payload, ensure_ascii=False, indent=2))
         raise SystemExit(1)
 
     payload = {
@@ -243,7 +245,8 @@ def main() -> None:
         "mode": "check" if args.check else "write",
     }
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        public_payload = publicize_json_value(payload, project_root=REPO_ROOT)
+        print(json.dumps(public_payload, ensure_ascii=False, indent=2))
     else:
         if changed_files:
             action = "Would update" if args.check else "Updated"

@@ -32,6 +32,7 @@ from _common import (
     latest_active_daily_log,
     load_workspace_state,
     parse_daily_log_entry_line,
+    public_json_payload,
     read_text,
     RECOVERY_PROPOSAL_FILE_RE,
     REVIEW_RECORD_FILE_RE,
@@ -442,7 +443,13 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         print(f"Prepared recovery promotion context for: {proposal_path}")
         print(f"Review record: {review_path}")

@@ -132,8 +132,10 @@ def action_allowed(state: str, action_level: str) -> bool:
         state = "unknown_offline"
     if action_level not in ACTION_LEVELS:
         action_level = "readonly"
-    if state in {"supported", "upgrade_recommended", "unknown_offline"}:
+    if state in {"supported", "upgrade_recommended"}:
         return True
+    if state == "unknown_offline":
+        return action_level in {"diagnostic", "readonly"}
     if state == "readonly_only":
         return action_level in {"diagnostic", "readonly"}
     if state == "diagnostic_only":
@@ -178,5 +180,5 @@ def user_message_for_state(state: str) -> str:
     if state == "upgrade_recommended":
         return "A newer RecallLoom package is available, but this action is still allowed."
     if state == "unknown_offline":
-        return "RecallLoom could not refresh package support status today, so it is using a permissive offline state."
+        return "RecallLoom could not refresh package support status today, so mutating actions stay blocked until support can be verified."
     return "This RecallLoom package is currently supported."

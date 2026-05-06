@@ -35,6 +35,8 @@ from _common import (
     parse_daily_log_entry_line,
     parse_file_state_marker,
     parse_iso_date,
+    public_project_path,
+    public_project_root_label,
     read_text,
     scan_auto_attached_context_text,
     section_keys_in_text,
@@ -769,7 +771,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=1,
             message="No RecallLoom project root found.",
-            payload=cli_failure_payload("no_project_root", error="No RecallLoom project root found."),
+            payload=cli_failure_payload(
+                "no_project_root",
+                error="No RecallLoom project root found.",
+                details={"project_root": str(Path(args.path).expanduser().resolve())},
+            ),
         )
 
     summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
@@ -1033,9 +1039,38 @@ def main() -> None:
         workspace_newer_than_summary=freshness["workspace_newer_than_summary"],
         conflict_state=conflict_state,
     )
+    public_project_root = public_project_root_label(workspace.project_root)
+    public_storage_root = public_project_path(workspace.storage_root, project_root=workspace.project_root)
+    public_update_protocol_path = public_project_path(update_protocol_path, project_root=workspace.project_root)
+    public_latest_daily_log = (
+        public_project_path(latest_daily_log, project_root=workspace.project_root)
+        if latest_daily_log is not None
+        else None
+    )
+    public_latest_workspace_artifact = (
+        public_project_path(freshness["latest_workspace_artifact"], project_root=workspace.project_root)
+        if freshness["latest_workspace_artifact"] is not None
+        else None
+    )
+    public_sources_considered = [
+        {**item, "path": public_project_path(item["path"], project_root=workspace.project_root)}
+        for item in sources_considered
+    ]
+    public_hit_list = [
+        {**item, "path": public_project_path(item["path"], project_root=workspace.project_root)}
+        for item in public_hit_list
+    ]
+    citations = [
+        {**item, "path": public_project_path(item["path"], project_root=workspace.project_root)}
+        for item in citations
+    ]
+    support_window = [
+        {**item, "path": public_project_path(item["path"], project_root=workspace.project_root)}
+        for item in support_window
+    ]
     payload = {
-        "project_root": str(workspace.project_root),
-        "storage_root": str(workspace.storage_root),
+        "project_root": public_project_root,
+        "storage_root": public_storage_root,
         "continuity_confidence": freshness["continuity_confidence"],
         "sidecar_trust_state": trust_state["sidecar_trust_state"],
         "allowed_operation_level": trust_state["allowed_operation_level"],
@@ -1053,11 +1088,11 @@ def main() -> None:
         "token_estimate": estimate,
         "budget_hint": budget_hint(estimate),
         "output_variant": output_variant_for_mode(args.mode),
-        "sources_considered": sources_considered,
+        "sources_considered": public_sources_considered,
         "override_review_targets": (
             [
                 {
-                    "path": str(update_protocol_path),
+                    "path": public_update_protocol_path,
                     "reason": "review_update_protocol_before_write",
                 }
             ]
@@ -1071,12 +1106,8 @@ def main() -> None:
         "continuity_snapshot": {
             "workspace_revision_seen": state["workspace_revision"],
             "rolling_summary_revision_seen": summary_state.revision,
-            "latest_active_daily_log_seen": str(latest_daily_log) if latest_daily_log else None,
-            "latest_workspace_artifact_seen": (
-                str(freshness["latest_workspace_artifact"])
-                if freshness["latest_workspace_artifact"] is not None
-                else None
-            ),
+            "latest_active_daily_log_seen": public_latest_daily_log,
+            "latest_workspace_artifact_seen": public_latest_workspace_artifact,
             "continuity_confidence": freshness["continuity_confidence"],
             "continuity_state": continuity_state,
             "continuity_seeded": continuity_seeded,
@@ -1093,11 +1124,7 @@ def main() -> None:
         "freshness_state": {
             "workspace_artifact_scan_mode": freshness["workspace_artifact_scan_mode"],
             "workspace_artifact_scan_performed": freshness["workspace_artifact_scan_performed"],
-            "latest_workspace_artifact": (
-                str(freshness["latest_workspace_artifact"])
-                if freshness["latest_workspace_artifact"] is not None
-                else None
-            ),
+            "latest_workspace_artifact": public_latest_workspace_artifact,
             "workspace_artifact_newer_than_summary": freshness["workspace_artifact_newer_than_summary"],
             "summary_revision_stale": freshness["summary_revision_stale"],
             "workspace_newer_than_summary": freshness["workspace_newer_than_summary"],

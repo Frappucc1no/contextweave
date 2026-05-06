@@ -19,6 +19,7 @@ from _common import (
     find_recovery_project_root,
     load_lock_payload,
     pid_is_alive,
+    public_json_payload,
     project_lock_path,
 )
 
@@ -135,7 +136,13 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         if not lock_exists:
             print(f"No RecallLoom write lock found at {lock_path}.")

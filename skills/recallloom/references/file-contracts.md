@@ -9,6 +9,7 @@
 - `STORAGE_ROOT/daily_logs/YYYY-MM-DD.md`
 - `STORAGE_ROOT/update_protocol.md`
 - `STORAGE_ROOT/companion/`
+- Helper JSON surfaces
 
 ## `STORAGE_ROOT/config.json`
 
@@ -90,6 +91,9 @@ Expected `bridged_entries` value shape:
 
 - these fields describe the latest **active** ISO-dated daily log under `STORAGE_ROOT/daily_logs/`
 - archived files under `STORAGE_ROOT/daily_logs/archive/` are excluded from this cursor
+- for the current package line on protocol `1.0`, `latest_entry_seq` is the file-local sequence number of the latest entry marker in that latest active daily log
+- `entry_count` remains the field name for protocol `1.0`; it means the number of entry markers in the latest active daily log file, not a cross-file global cumulative count
+- helper-generated canonical `latest_entry_id` mirrors the latest entry marker id, where the canonical marker id is `entry-{entry_seq}` for that file-local sequence
 - archiving older logs without changing the latest active daily-log cursor should not by itself advance `workspace_revision`
 - when no active daily log exists, helpers must write:
   - `latest_file = null`
@@ -243,6 +247,156 @@ Version consistency rule:
 
 - `protocol_version` must use a supported RecallLoom protocol version
 - protocol `1.0` uses dotted string form such as `1.0`
+
+## Helper JSON Surfaces
+
+Role:
+
+- structured JSON guidance emitted by helpers and the dispatcher
+- not persisted into `STORAGE_ROOT`
+- versioned independently from the sidecar file protocol
+
+Current contract distinction:
+
+- sidecar `protocol_version` remains `1.0`
+- helper output `schema_version` may be `1.1`
+
+Compatibility rules:
+
+- `schema_version: "1.1"` is a helper output contract, not a sidecar protocol
+  upgrade
+- new helper fields are additive and optional unless this section explicitly
+  marks them required for a specific surface
+- existing consumers may ignore unknown helper-output fields
+- existing required JSON fields on documented stable surfaces must not be
+  removed or renamed within the current helper schema `1.x` line
+
+Field semantics for helper schema `1.1`:
+
+- `schema_version`
+  - required when a payload opts into helper schema `1.1`
+  - dotted string naming the helper output contract line
+  - current value is `1.1`
+- `next_actions`
+  - ordered array of stable machine-readable action tokens
+  - expresses the preferred next moves from most immediate to less immediate
+  - tokens are contract identifiers, not localized display strings
+- `suggestion`
+  - short localized human-readable guidance string
+  - summarizes the preferred recovery or follow-up action
+  - complements `next_actions`; it does not rename those tokens
+- `recovery_command`
+  - single preferred actionable recovery instruction
+  - use a literal command string when a deterministic rerun path exists
+  - otherwise use a concise imperative instruction instead of fabricating a
+    fake shell command
+- `read_plan`
+  - optional structured read recommendation for follow-up continuity loading
+  - additive in schema `1.1`; consumers that do not understand it may ignore
+    it entirely
+- `estimated_tokens`
+  - optional integer estimate for the helper-defined read budget
+  - when `read_plan` is present, this top-level value is the default
+    `standard` tier budget and must equal
+    `read_plan.standard.estimated_tokens`
+- `progressive_read_plan`
+  - optional structured read plan for bounded `resume --fast` and
+    `resume --full` surfaces
+  - distinct from the E2 tiered `read_plan` contract used by ambient
+    `status --json` and bare `resume --json`
+  - consumers that do not understand it may ignore it entirely
+
+`read_plan` contract for E2:
+
+- `read_plan` is an object with at least these named tiers:
+  - `minimal`
+  - `standard`
+  - `comprehensive`
+- future helper schemas may add more tiers; existing consumers may ignore
+  unknown tier keys
+
+Each required tier must contain:
+
+- `files`
+  - ordered list of project-root-relative paths to read next
+  - use the actual storage-root prefix under the project root, such as
+    `.recallloom/...` or `recallloom/...`
+  - do not emit absolute paths, bare storage-root-relative fragments, or
+    ambiguous aliases
+- `reason`
+  - short explanation of why the listed files are sufficient for that tier
+  - this is the normative place to say `review-before-write` when the plan is
+    only safe after additional human review
+- `estimated_tokens`
+  - integer estimate for reading the files listed in that tier
+  - this is a plan budget hint, not an exact tokenizer promise
+
+Tier intent:
+
+- `minimal`
+  - smallest bounded continuity set for orientation
+  - centers on current-state files instead of deep history
+  - should not expand into extra evidence unless safety or freshness requires
+    it
+- `standard`
+  - default balanced tier for most follow-up work
+  - should extend `minimal` with framing and project-local constraints when
+    available
+- `comprehensive`
+  - highest-confidence tier for stale, conflicting, or evidence-heavy cases
+  - may add the latest active daily log and other directly relevant managed
+    evidence
+
+Review-before-write rule:
+
+- when `update_protocol.md` exists or governs the action, every tier reason
+  must explicitly include `review-before-write`, and every tier file list must
+  include the project-root-relative `update_protocol.md` path
+- when `rolling_summary.md` is stale, every tier reason must explicitly
+  include `review-before-write`
+- in stale-summary cases, the tier file list must include
+  the project-root-relative `state.json` and `rolling_summary.md` paths under
+  the resolved storage root, plus any identified newer managed artifact path
+  when that path is known
+- consumers must treat these markers as read gates, not as automatic write
+  approval
+
+Budget relationship to `query_continuity.py`:
+
+- `read_plan.*.estimated_tokens` and the top-level helper `estimated_tokens`
+  describe the cost of executing the suggested read plan
+- they do not replace, rename, or retroactively reinterpret
+  `query_continuity.py` fields `token_estimate` or `budget_hint`
+- `query_continuity.py.token_estimate` continues to estimate the size of the
+  returned recall text
+- `query_continuity.py.budget_hint` remains its coarse answer-size bucket
+
+`progressive_read_plan` contract for F1:
+
+- only emit this field for explicit bounded progressive resume modes such as
+  `resume --fast --json` and `resume --full --json`
+- do not emit the E2 tiered `read_plan` on those explicit progressive modes
+- required fields:
+  - `mode`: `fast` or `full`
+  - `files`: ordered project-root-relative paths the mode used for its bounded
+    read surface
+  - `reason`: short explanation of why that bounded surface is appropriate
+  - `estimated_tokens`: integer estimate for reading the listed files
+  - `bounded`: boolean value that must be `true`
+
+Mode intent:
+
+- `fast`
+  - use when the agent only needs current-state orientation and the latest
+    summary is enough to decide the next safe move
+  - read `state.json` and `rolling_summary.md`
+  - do not read daily logs by default
+- `full`
+  - use when stable project framing, source-of-truth routing, or
+    `update_protocol.md` guidance is needed before choosing an action
+  - extend the bounded read surface with `context_brief.md` and
+    `update_protocol.md`
+  - keep daily-log evidence on demand through `query_continuity.py`
 
 ## `STORAGE_ROOT/context_brief.md`
 
@@ -467,6 +621,14 @@ Entry unit rule:
 - each entry must carry its own `daily-log-entry` marker
 - each entry must include the required daily-log sections
 - append-only means adding a new entry block, not rewriting older entries in place
+
+Entry sequence and id rule:
+
+- `entry-seq` is a file-local sequence and must be contiguous as `1..N` inside each daily log file
+- every daily log's first real append starts at `entry-seq=1`, including after an initialization scaffold is replaced by the first real entry
+- helper-generated canonical `entry-id` is `entry-{entry_seq}` and is not a global identifier
+- historical daily logs may each contain `entry-1`; duplicate `entry-id` values across different daily log files are normal under protocol `1.0`
+- noncanonical ids can still be parsed, but validators should surface them with `noncanonical_daily_log_entry_id` so they are not confused with helper-generated canonical ids
 
 Operational rule:
 

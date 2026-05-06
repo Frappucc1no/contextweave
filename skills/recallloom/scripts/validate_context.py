@@ -14,6 +14,7 @@ from core.bridge.blocks import (
     managed_exclude_block_text,
 )
 from core.continuity.workday import logical_workday_for
+from core.output.privacy import publicize_json_value
 from core.protocol.contracts import (
     BRIDGE_START,
     FILE_KEYS,
@@ -962,7 +963,8 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        public_payload = publicize_json_value(payload, project_root=workspace.project_root)
+        print(json.dumps(public_payload, ensure_ascii=False, indent=2))
     else:
         print(f"RecallLoom root: {workspace.project_root}")
         print(f"Storage root: {workspace.storage_root}")

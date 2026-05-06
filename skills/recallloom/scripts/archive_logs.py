@@ -28,6 +28,7 @@ from _common import (
     load_workspace_state,
     now_iso_timestamp,
     parse_iso_date,
+    public_json_payload,
     sorted_active_daily_log_files,
     sorted_daily_log_files,
     workspace_write_lock,
@@ -345,7 +346,13 @@ def main() -> None:
         )
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         action = "Would archive" if not args.yes else "Archived"
         print(f"{action} {len(ordered)} daily log(s).")

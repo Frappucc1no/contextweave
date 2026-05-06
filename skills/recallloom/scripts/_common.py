@@ -37,6 +37,13 @@ from core.workspace import runtime as workspace_runtime
 from core.bridge import blocks as bridge_blocks
 from core.continuity import freshness as continuity_freshness
 from core.failure.contracts import failure_payload, preferred_failure_language
+from core.output.privacy import (
+    display_project_path as shared_display_project_path,
+    display_project_root_label as shared_display_project_root_label,
+    public_project_path as shared_public_project_path,
+    public_project_root_label as shared_public_project_root_label,
+    publicize_json_value,
+)
 from core.support.cache import SUPPORT_STATE_ENV, package_support_result
 from core.support.policy import action_level_for_script
 from core.safety import attached_text as safety_attached_text
@@ -444,8 +451,66 @@ except RuntimeError as exc:
         "dynamic_file_rules": [],
     }
 PACKAGE_NAME = PACKAGE_METADATA["package_name"]
-DISPLAY_NAME = PACKAGE_METADATA["display_name"]
 PACKAGE_VERSION = PACKAGE_METADATA["package_version"]
+
+
+# ---------------------------------------------------------------------------
+# Agent + model auto-detection for writer_id
+# Reads AI_AGENT (standard agent identity) and the first model env var
+# found among common provider names.  Concatenates with ``+`` as separator.
+# Falls back to the package display name when no agent env is detected.
+# No subprocess, no I/O — pure env reads, runs once at module load.
+# ---------------------------------------------------------------------------
+
+_AGENT_ID_CACHE: str | None = None
+
+# Order does not imply priority; the first one found wins.
+_MODEL_ENV_VARS = (
+    "ANTHROPIC_MODEL",
+    "OPENAI_MODEL",
+    "GEMINI_MODEL",
+    "MODEL",
+    "LLM_MODEL",
+)
+
+
+def _clean_writer_value(value: str) -> str:
+    """Strip control chars, pipe and bracket so the value is safe in all marker fields."""
+    return "".join(ch for ch in value if ch not in {"|", "]", "\n", "\r"}).strip()
+
+
+def get_default_writer_id() -> str:
+    """
+    Return the canonical writer-id for the current session.
+
+    Reads ``AI_AGENT`` as-is and joins it with the first model env var
+    that is set.  Falls back to ``display_name`` when neither is found.
+    """
+    global _AGENT_ID_CACHE
+    if _AGENT_ID_CACHE is not None:
+        return _AGENT_ID_CACHE
+
+    agent_raw = os.environ.get("AI_AGENT", "")
+    model_raw = ""
+    for var in _MODEL_ENV_VARS:
+        model_raw = os.environ.get(var, "")
+        if model_raw:
+            break
+
+    agent_part = _clean_writer_value(agent_raw.split("/")[0]) if agent_raw else ""
+    model_part = _clean_writer_value(model_raw) if model_raw else ""
+
+    if agent_part:
+        _AGENT_ID_CACHE = f"{agent_part}+{model_part}" if model_part else agent_part
+    elif model_part:
+        _AGENT_ID_CACHE = model_part
+    else:
+        _AGENT_ID_CACHE = PACKAGE_METADATA["display_name"]
+
+    return _AGENT_ID_CACHE
+
+
+DISPLAY_NAME = get_default_writer_id()
 CURRENT_PROTOCOL_VERSION = protocol_contracts.CURRENT_PROTOCOL_VERSION
 SUPPORTED_PROTOCOL_VERSIONS = protocol_contracts.SUPPORTED_PROTOCOL_VERSIONS
 MINIMUM_PYTHON_VERSION = PACKAGE_METADATA["minimum_python_version"]
@@ -513,9 +578,9 @@ def validate_tool_name(value: str) -> str:
 def validate_writer_id(value: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ConfigContractError("writer_id must be a non-empty string")
-    if any(ch in value for ch in {"|", "\n", "\r"}):
+    if any(ch in value for ch in {"|", "]", "\n", "\r"}):
         raise ConfigContractError(
-            "writer_id may not contain '|', or line-break characters because it is embedded in machine-readable markers"
+            "writer_id may not contain '|', ']', or line-break characters because it is embedded in machine-readable markers"
         )
     return value.strip()
 WORKSPACE_LOCK_FILENAME = workspace_runtime.WORKSPACE_LOCK_FILENAME
@@ -629,14 +694,97 @@ def cli_failure_payload(
     findings: list | None = None,
     extra: dict | None = None,
 ) -> dict:
+    normalized_details = dict(details or {})
+    if reason in {"no_project_root", "not_project_root", "invalid_storage_boundary"}:
+        inferred_project_root = normalized_details.get("project_root")
+        if not isinstance(inferred_project_root, str) or not inferred_project_root.strip():
+            raw_target = None
+            argv = list(sys.argv[1:]) if len(sys.argv) > 1 else []
+            if Path(sys.argv[0]).name == "recallloom.py" and argv:
+                argv = argv[1:]
+            if argv and not argv[0].startswith("-"):
+                raw_target = argv[0]
+            else:
+                raw_target = "."
+            try:
+                normalized_details["project_root"] = str(normalize_start_path(raw_target))
+            except StorageResolutionError:
+                normalized_details["project_root"] = str(Path(raw_target).expanduser().resolve())
     return failure_payload(
         reason,
         language=preferred_failure_language(os.environ),
         error=error,
-        details=details,
+        details=normalized_details or None,
         findings=findings,
         extra=extra,
+        script_name=Path(sys.argv[0]).name if sys.argv else None,
     )
+
+
+def public_project_root_label(project_root: str | Path) -> str:
+    return shared_public_project_root_label(project_root)
+
+
+def public_project_path(
+    path: str | Path | None,
+    *,
+    project_root: str | Path,
+) -> str | None:
+    return shared_public_project_path(path, project_root=project_root)
+
+
+def display_project_root_label(project_root: str | Path) -> str:
+    return shared_display_project_root_label(project_root)
+
+
+def display_project_path(
+    path: str | Path | None,
+    *,
+    project_root: str | Path,
+) -> str | None:
+    return shared_display_project_path(path, project_root=project_root)
+
+
+def public_json_payload(
+    payload: dict,
+    *,
+    project_root: str | Path | None,
+) -> dict:
+    publicized = publicize_json_value(payload, project_root=project_root)
+    return publicized if isinstance(publicized, dict) else payload
+
+
+def public_package_support_payload(support: dict | None) -> dict | None:
+    if support is None:
+        return None
+    allowed_keys = (
+        "allowed",
+        "action_name",
+        "action_level",
+        "package_support_state",
+        "current_version",
+        "latest_version",
+        "minimum_mutating_version",
+        "minimum_readonly_version",
+        "advisory_level",
+        "reason_code",
+        "update_hints",
+        "checked_date",
+        "checked_at",
+        "source",
+        "cache_hit",
+        "support_diagnostic_reason",
+        "user_message",
+        "disabled",
+    )
+    public = {key: support[key] for key in allowed_keys if key in support}
+    source = public.get("source")
+    if isinstance(source, str):
+        if source.startswith("file:"):
+            public["source"] = "file"
+        elif source.startswith("url:"):
+            public["source"] = "url"
+    return public
 
 
 def exit_with_failure_contract(

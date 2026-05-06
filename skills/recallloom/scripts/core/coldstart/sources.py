@@ -23,6 +23,52 @@ MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+")
 HOST_MEMORY_CONFIDENCE_LEVELS = {"low", "medium", "high"}
 
 
+def _resolved_path_within_project(candidate: Path, *, project_root: Path) -> Path | None:
+    try:
+        resolved_candidate = candidate.resolve(strict=True)
+        resolved_project_root = project_root.resolve(strict=True)
+    except OSError:
+        return None
+    try:
+        resolved_candidate.relative_to(resolved_project_root)
+    except ValueError:
+        return None
+    return resolved_candidate
+
+
+def _dedupe_internal_project_candidates(
+    candidates: list[Path],
+    *,
+    project_root: Path,
+) -> list[tuple[Path, Path]]:
+    accepted: dict[str, dict[str, object]] = {}
+    for index, candidate in enumerate(candidates):
+        resolved_candidate = _resolved_path_within_project(
+            candidate,
+            project_root=project_root,
+        )
+        if not candidate.is_file() or resolved_candidate is None:
+            continue
+        resolved_key = resolved_candidate.as_posix()
+        existing = accepted.get(resolved_key)
+        if existing is None:
+            accepted[resolved_key] = {
+                "candidate": candidate,
+                "resolved_candidate": resolved_candidate,
+                "index": index,
+            }
+            continue
+        existing_candidate = existing["candidate"]
+        if isinstance(existing_candidate, Path) and existing_candidate.is_symlink() and not candidate.is_symlink():
+            existing["candidate"] = candidate
+            existing["resolved_candidate"] = resolved_candidate
+    return [
+        (entry["candidate"], entry["resolved_candidate"])
+        for entry in sorted(accepted.values(), key=lambda item: int(item["index"]))
+        if isinstance(entry["candidate"], Path) and isinstance(entry["resolved_candidate"], Path)
+    ]
+
+
 def normalize_text_lines(text: str, *, max_lines: int = 4) -> list[str]:
     lines: list[str] = []
     for raw in text.splitlines():
@@ -51,10 +97,12 @@ def read_source_excerpt(path: Path, *, max_lines: int = 4) -> list[str]:
 
 def tier_a_sources(project_root: Path) -> list[dict]:
     sources: list[dict] = []
-    for rel_path in ROOT_ENTRY_CANDIDATES:
-        candidate = project_root / rel_path
-        if not candidate.is_file():
-            continue
+    candidates = [project_root / rel_path for rel_path in ROOT_ENTRY_CANDIDATES]
+    for candidate, _resolved_candidate in _dedupe_internal_project_candidates(
+        candidates,
+        project_root=project_root,
+    ):
+        rel_path = candidate.relative_to(project_root)
         sources.append(
             {
                 "tier": "A",
@@ -71,34 +119,21 @@ def tier_a_sources(project_root: Path) -> list[dict]:
 def tier_b_sources(project_root: Path) -> list[dict]:
     sources: list[dict] = []
     docs_dir = project_root / "docs"
-    seen: set[str] = set()
+    candidates: list[Path] = []
     if docs_dir.is_dir():
         for candidate in sorted(docs_dir.rglob("*")):
-            if not candidate.is_file():
-                continue
-            rel = candidate.relative_to(project_root).as_posix()
             if not HIGH_SIGNAL_DOC_RE.search(candidate.stem):
                 continue
-            if rel in seen:
-                continue
-            seen.add(rel)
-            sources.append(
-                {
-                    "tier": "B",
-                    "path": str(candidate),
-                    "relative_path": rel,
-                    "kind": "high_signal_doc",
-                    "confidence": "medium",
-                    "excerpt_lines": read_source_excerpt(candidate),
-                }
-            )
+            candidates.append(candidate)
     for candidate in sorted(project_root.iterdir()):
-        if not candidate.is_file():
+        if not HIGH_SIGNAL_DOC_RE.search(candidate.stem):
             continue
+        candidates.append(candidate)
+    for candidate, _resolved_candidate in _dedupe_internal_project_candidates(
+        candidates,
+        project_root=project_root,
+    ):
         rel = candidate.relative_to(project_root).as_posix()
-        if rel in seen or not HIGH_SIGNAL_DOC_RE.search(candidate.stem):
-            continue
-        seen.add(rel)
         sources.append(
             {
                 "tier": "B",
@@ -113,18 +148,23 @@ def tier_b_sources(project_root: Path) -> list[dict]:
 
 
 def tier_c_sources(project_root: Path) -> list[dict]:
-    sources: list[dict] = []
     candidates = list(project_root.glob("*.md"))
     docs_dir = project_root / "docs"
     if docs_dir.is_dir():
         candidates.extend(docs_dir.rglob("*.md"))
 
-    seen: set[str] = set()
-    for candidate in sorted({path.resolve() for path in candidates}):
+    filtered_candidates = [
+        candidate
+        for candidate in sorted(candidates, key=lambda path: path.as_posix())
+        if USER_REALITY_DOC_RE.search(candidate.stem)
+    ]
+
+    sources: list[dict] = []
+    for candidate, _resolved_candidate in _dedupe_internal_project_candidates(
+        filtered_candidates,
+        project_root=project_root,
+    ):
         rel = candidate.relative_to(project_root).as_posix()
-        if rel in seen or not USER_REALITY_DOC_RE.search(candidate.stem):
-            continue
-        seen.add(rel)
         sources.append(
             {
                 "tier": "C",

@@ -13,6 +13,7 @@ from core.continuity.freshness import (
     summary_matches_empty_shell_template as shared_summary_matches_empty_shell_template,
 )
 from core.failure.contracts import failure_payload
+from core.output.privacy import publicize_json_value
 from core.protocol.contracts import (
     BRIDGE_START,
     DEFAULT_WORKSPACE_LANGUAGE,
@@ -360,9 +361,11 @@ def init_failure_payload(
 ) -> dict:
     payload = {"project_root": str(project_root), "initialized": False}
     if reason is None:
-        return payload
+        publicized = publicize_json_value(payload, project_root=project_root)
+        return publicized if isinstance(publicized, dict) else payload
     payload.update(failure_payload(reason, language=workspace_language, error=error))
-    return payload
+    publicized = publicize_json_value(payload, project_root=project_root)
+    return publicized if isinstance(publicized, dict) else payload
 
 
 def infer_init_failure_reason(message: str) -> str | None:
@@ -674,7 +677,8 @@ def main() -> None:
                     "continuity_seeded": continuity_seeded,
                 }
                 if args.json:
-                    print(json.dumps(summary, ensure_ascii=False, indent=2))
+                    public_summary = publicize_json_value(summary, project_root=project_root)
+                    print(json.dumps(public_summary, ensure_ascii=False, indent=2))
                 else:
                     print(f"RecallLoom is already initialized in {project_root}")
                     print(f"Storage mode: {storage_mode}")
@@ -914,7 +918,8 @@ def main() -> None:
         )
 
     if args.json:
-        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        public_summary = publicize_json_value(summary, project_root=project_root)
+        print(json.dumps(public_summary, ensure_ascii=False, indent=2))
     else:
         print(f"Initialized RecallLoom in {project_root}")
         print(f"Storage mode: {storage_mode}")

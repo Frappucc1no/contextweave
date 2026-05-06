@@ -24,6 +24,7 @@ Human-facing repository landing pages and marketing docs may exist upstream, but
 
 For package inventory, protocol details, and helper-script behavior, rely on the files that ship inside the package itself:
 
+- `managed-assets.json`
 - `package-metadata.json`
 - `references/file-contracts.md`
 - `references/operation-playbooks.md`
@@ -33,7 +34,7 @@ For package inventory, protocol details, and helper-script behavior, rely on the
 ## Package Facts
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- package version: `0.3.4`
+- package version: `0.3.5`
 - protocol version: `1.0`
 - supported protocol versions:
   - `1.0`
@@ -66,6 +67,17 @@ If the advisory cannot be refreshed and no usable cache exists, helpers use `unk
 
 When the gate blocks an action, it returns the shared failure contract with `blocked_reason: package_support_blocked` and a `package_support` object.
 See `references/package-support-policy.md` for the advisory schema, action levels, cache behavior, and environment overrides.
+
+## Write Protocol Red Lines
+
+- For managed sidecar writes, use the concrete helper scripts. Do not bypass them with blind file replacement, blind patching, or by hand-building sidecar files.
+- Managed sidecar daily-log writes must go through `append_daily_log_entry.py` or the dispatcher `append` command. Do not handwrite `daily-log-entry` markers in managed daily logs during normal operation.
+- For the current package line on protocol `1.0`, daily-log entry counters are file-local: `entry-seq` is the contiguous `1..N` sequence inside one daily log file, and helper-generated canonical `entry-id` is `entry-{entry_seq}`. Do not treat either as a cross-file global counter or globally unique id.
+- Keep `state.json.daily_logs.entry_count` as `entry_count`. Its protocol `1.0` meaning is the number of entry markers in the latest active daily log file, not a global cumulative total, and this package line does not perform an `entry_count` to `latest_file_entry_count` schema migration.
+- If a helper write fails, follow this order: diagnose the failure, fix the cause, retry the helper, then surface or return the helper's blocked failure contract if the helper still cannot complete.
+- Never hand-edit `STORAGE_ROOT/state.json` or `STORAGE_ROOT/config.json` during normal operation. This includes `.recallloom/state.json` and `.recallloom/config.json`.
+- For overwrite-style managed files, use revision-aware helper commits and do not use blind file replacement.
+- The only acceptable manual exception is an explicit damaged-sidecar repair. In that case, repair the daily-log marker and state cursor as one consistency set: `entry-id`, `entry-seq`, `latest_entry_id`, `latest_entry_seq`, and `entry_count` must match the validator canonical interpretation, and `validate_context.py` must be rerun immediately.
 
 ## When To Use It
 
@@ -109,16 +121,20 @@ This means `rl-init` should be treated as a stable high-level action name, even 
 
 ## Current Action Surface
 
-For the current package line, the stable action names are:
+For the current package line, the stable operator-facing wrapper targets are:
 
 - `rl-init`
 - `rl-resume`
 - `rl-validate`
 - `rl-status`
-- `rl-bridge`
 
 `rl-init` is the primary operator-friendly first-attach action name.
 The others are operator-facing stable action names that can be interpreted by the host agent or mapped into native custom commands when the host supports that surface.
+`rl-bridge` remains the canonical dispatcher/helper action label for bridge work, but this package line does not promise a universal native wrapper or deterministic first-hop routing for that label.
+
+The dispatcher command surface also includes `quick-summary`, `append`, and `write`.
+Use `quick-summary` for low-latency current-state snapshots, `append --entry-json` for structured milestone logging, and `write --type ... --dry-run` before applying typed managed-file writes.
+These dispatcher additions are optional for existing `v0.3.4` projects and do not change sidecar protocol `1.0`.
 
 ## Initialized-Project Restore Contract
 
@@ -137,8 +153,8 @@ Do not invent a manual sidecar fallback or a host-local restore alias that is no
 RecallLoom should default to user task language, not implementation language.
 
 - Prefer “initialize”, “restore”, “import existing project reality”, “continue”, and “record progress”.
-- Do not lead with helper names, section keys, or the internal `coldstart` label unless the user is explicitly doing operator/debug work.
-- Keep the first response result-first and action-light: one clear next move is better than exposing internal flow.
+- Do not lead with helper names, section keys, or the `coldstart` label unless the user is explicitly doing operator/debug work.
+- Keep the first response result-first and action-light: one clear next move is better than exposing routing details.
 - Do not invent a manual sidecar fallback when runtime requirements are missing; surface the blocked state and stop.
 
 ## Fast And Deep Paths
@@ -148,6 +164,13 @@ RecallLoom should treat fast path as the default interaction mode.
 - Fast path: smallest trustworthy source set, shortest interaction, lowest interruption cost.
 - Deep path: only when sources conflict, source coverage is insufficient, risk is too high for a direct recommendation, or the user explicitly asks for deeper review.
 - Host-memory inputs remain opt-in and hint-only; their presence should bias the agent toward explicit review instead of silent promotion.
+
+Resume mode selection:
+
+- Use ambient `resume` or `status` when the next agent needs the normal tiered read-plan guidance before deciding what to read.
+- Use `resume --fast` when current-state orientation is enough and the next safe move can be chosen from `state.json` plus `rolling_summary.md`.
+- Use `resume --full` when stable framing, source-of-truth routing, or project-local `update_protocol.md` guidance is needed before action.
+- Keep daily-log evidence on demand through `query_continuity.py`; fast and full resume modes should not expand into daily logs by default.
 
 ## Core File Model
 
@@ -204,7 +227,7 @@ See `references/operation-playbooks.md` for the full flow.
 
 ## Current Read-Side Helpers
 
-The current `0.3.4` line now has three read-side helper directions worth knowing:
+This package line now has three read-side helper directions worth knowing:
 
 - `preflight_context_check.py`
   - revision-aware freshness review before formal writes
@@ -263,7 +286,7 @@ Project-local overrides may narrow the default read order, write order, or archi
 Before writing continuity content, the agent should make the layer decision itself.
 Helpers can provide safe write context and static write-tier guidance, but they must not replace agent judgment about what the content means.
 
-Use this quick internal check before editing managed files:
+Use this quick consistency check before editing managed files:
 
 1. Is there a new durable fact, or is `no_write` the right result?
 2. If writing is needed, is the main content a `stable_rule`, `current_state`, or `milestone_evidence`?
@@ -293,7 +316,7 @@ When deterministic write safety matters, keep the roles separate:
 - the agent decides what should change and prepares the content
 - the packaged helper scripts decide whether the write is still safe to apply
 
-For overwrite-style files, use revision-aware helper commits instead of blind file replacement whenever possible.
+For overwrite-style files, follow the write red lines above; revision-aware helper commits are the normal write path.
 
 Revision-aware write helpers protect against stale writes, but they do not automatically reread `update_protocol.md` on every commit or append.
 

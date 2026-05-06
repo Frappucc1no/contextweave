@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -62,15 +63,31 @@ def _bootstrap_runtime_contract(minimum_text: str) -> dict:
 def _bootstrap_runtime_payload(message: str, minimum_text: str) -> dict:
     language = _bootstrap_failure_language()
     contract = _bootstrap_runtime_contract(minimum_text)
+    script_name = Path(__file__).name
+    recovery_command = {
+        "en": f"Use a Python {minimum_text}+ interpreter to run {script_name} --json",
+        "zh-CN": f"请使用 Python {minimum_text}+ 解释器运行 {script_name} --json",
+    }
+    suggestion = {
+        "en": (
+            "Repair the RecallLoom bootstrap/runtime files or switch to a compatible Python "
+            f"{minimum_text}+ interpreter before retrying."
+        ),
+        "zh-CN": f"请先修复 RecallLoom 的 bootstrap/runtime 文件，或切换到兼容的 Python {minimum_text}+ 解释器后再重试。",
+    }
     return {
         "ok": False,
+        "schema_version": "1.1",
         "blocked": contract["blocked"],
         "blocked_reason": contract["blocked_reason"],
         "recoverability": contract["recoverability"],
         "surface_level": contract["surface_level"],
         "trust_effect": contract["trust_effect"],
+        "failure_stage": "runtime_bootstrap",
         "next_actions": list(contract["next_actions"]),
         "user_message": contract["user_message"][language],
+        "suggestion": suggestion[language],
+        "recovery_command": recovery_command[language],
         "operator_note": contract["operator_note"][language],
         "error": message,
     }
@@ -95,17 +112,29 @@ def _exit_if_runtime_unsupported() -> None:
 
 _exit_if_runtime_unsupported()
 
+from core.continuity.quick_summary import build_no_project_payload, build_quick_summary_payload
 from core.continuity.workday import RECOMMENDATION_TYPES, describe_workday_guidance
 from core.failure.contracts import failure_payload, preferred_failure_language
-from core.protocol.contracts import ROOT_ENTRY_CANDIDATES
+from core.protocol.contracts import FILE_KEYS, ROOT_ENTRY_CANDIDATES
+from core.protocol.markers import parse_file_state_marker
 from core.support.policy import action_level_for_dispatcher
 
 from _common import (
+    cli_failure_payload,
+    cli_failure_payload_for_exception,
     ConfigContractError,
     EnvironmentContractError,
     enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
+    find_recallloom_root,
+    load_workspace_state,
+    normalize_start_path,
+    public_package_support_payload,
+    public_project_path,
+    public_project_root_label,
+    read_text,
+    StorageResolutionError,
 )
 
 
@@ -115,7 +144,7 @@ SUPPORTED_BRIDGE_TARGETS = [path.as_posix() for path in ROOT_ENTRY_CANDIDATES]
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Unified RecallLoom command entry for init, resume, validate, status, and bridge flows."
+        description="Unified RecallLoom command entry for init, resume, validate, status, quick-summary, append, write, and bridge flows."
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -224,6 +253,17 @@ def build_parser() -> argparse.ArgumentParser:
         choices=sorted(RECOMMENDATION_TYPES),
         help="Optional explicit session-intent hint using one of the recommendation types.",
     )
+    resume_mode = resume_parser.add_mutually_exclusive_group()
+    resume_mode.add_argument(
+        "--fast",
+        action="store_true",
+        help="Return the bounded progressive resume surface from state.json and rolling_summary.md.",
+    )
+    resume_mode.add_argument(
+        "--full",
+        action="store_true",
+        help="Return the bounded progressive resume surface plus context and update-protocol guidance.",
+    )
     resume_parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
 
     status_parser = subparsers.add_parser(
@@ -260,6 +300,103 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional explicit session-intent hint using one of the recommendation types.",
     )
     status_parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
+
+    quick_summary_parser = subparsers.add_parser(
+        "quick-summary",
+        help="Return a low-latency continuity snapshot from state.json and rolling_summary.md.",
+    )
+    quick_summary_parser.add_argument(
+        "target",
+        nargs="?",
+        default=".",
+        help="Project path or a descendant path. Defaults to the current working directory.",
+    )
+    quick_summary_parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
+
+    append_parser = subparsers.add_parser(
+        "append",
+        help="Append a prepared daily-log entry through append_daily_log_entry.py.",
+    )
+    append_parser.add_argument(
+        "target",
+        nargs="?",
+        default=".",
+        help="Project path or a descendant path. Defaults to the current working directory.",
+    )
+    append_parser.add_argument("--date", help="Daily log date in YYYY-MM-DD.")
+    append_parser.add_argument(
+        "--expected-workspace-revision",
+        type=int,
+        help="Expected workspace revision for the append guard.",
+    )
+    append_parser.add_argument(
+        "--entry-file",
+        help="Path to prepared entry content.",
+    )
+    append_parser.add_argument(
+        "--entry-json",
+        help="Prepared entry JSON object as a string.",
+    )
+    append_parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read prepared entry content from UTF-8 stdin instead of a file.",
+    )
+    append_parser.add_argument(
+        "--input-format",
+        choices=("auto", "markdown", "json"),
+        help="Interpret prepared entry input as markdown or JSON.",
+    )
+    append_parser.add_argument(
+        "--allow-historical",
+        action="store_true",
+        help="Allow appending to a non-latest ISO-dated daily log.",
+    )
+    append_parser.add_argument(
+        "--no-auto-detect",
+        action="store_true",
+        help="Require explicit --date and --expected-workspace-revision instead of helper auto-detect.",
+    )
+    append_parser.add_argument(
+        "--writer-id",
+        help="Override the writer ID for appended daily-log entries.",
+    )
+    append_parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
+
+    write_parser = subparsers.add_parser(
+        "write",
+        help="Write a prepared managed continuity file through commit_context_file.py.",
+    )
+    write_parser.add_argument(
+        "target",
+        nargs="?",
+        default=".",
+        help="Project path or a descendant path. Defaults to the current working directory.",
+    )
+    write_parser.add_argument(
+        "--type",
+        dest="write_type",
+        help="Prepared file target: current-state, stable-context, or protocol-rules.",
+    )
+    write_parser.add_argument(
+        "--source-file",
+        help="Path to prepared managed-file markdown content.",
+    )
+    write_parser.add_argument(
+        "--stdin",
+        action="store_true",
+        help="Read prepared managed-file markdown content from UTF-8 stdin instead of a file.",
+    )
+    write_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run preflight and report the target/revisions without writing sidecar state or files.",
+    )
+    write_parser.add_argument(
+        "--writer-id",
+        help="Override the writer ID used by commit_context_file.py.",
+    )
+    write_parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
 
     bridge_parser = subparsers.add_parser(
         "bridge",
@@ -298,6 +435,30 @@ def _preferred_language() -> str:
 
 def _contract_payload(reason: str, *, error: str | None = None) -> dict:
     return failure_payload(reason, language=_preferred_language(), error=error)
+
+
+def _with_package_support(payload: dict | None, support: dict | None) -> dict | None:
+    if payload is None or support is None:
+        return payload
+    return {**payload, "package_support": public_package_support_payload(support)}
+
+
+def _exit_with_support(
+    parser,
+    *,
+    json_mode: bool,
+    exit_code: int,
+    message: str,
+    payload: dict | None = None,
+    support: dict | None = None,
+) -> None:
+    exit_with_cli_error(
+        parser,
+        json_mode=json_mode,
+        exit_code=exit_code,
+        message=message,
+        payload=_with_package_support(payload, support),
+    )
 
 
 def _infer_helper_failure_reason(helper_name: str, message: str) -> str | None:
@@ -365,6 +526,8 @@ def _run_helper_json(
     helper_name: str,
     helper_args: list[str],
     json_mode_on_failure: bool,
+    support: dict | None = None,
+    package_support_on_failure: bool = False,
 ) -> dict:
     cmd = [sys.executable, str(SCRIPT_DIR / helper_name), *helper_args, "--json"]
     proc = subprocess.run(cmd, text=True, capture_output=True, check=False)
@@ -379,19 +542,31 @@ def _run_helper_json(
             parsed_error = _normalize_helper_error(helper_name, parsed_error)
         if json_mode_on_failure:
             if parsed_error is not None:
-                print(json.dumps(parsed_error, ensure_ascii=False, indent=2))
+                failure_payload = (
+                    _with_package_support(parsed_error, support)
+                    if package_support_on_failure
+                    else parsed_error
+                )
+                print(
+                    json.dumps(
+                        failure_payload,
+                        ensure_ascii=False,
+                        indent=2,
+                    )
+                )
                 raise SystemExit(proc.returncode)
             if proc.stdout:
                 print(proc.stdout, end="")
                 raise SystemExit(proc.returncode)
             message = proc.stderr.strip() or f"{helper_name} failed."
             reason = _infer_helper_failure_reason(helper_name, message) or "damaged_sidecar"
-            exit_with_cli_error(
+            _exit_with_support(
                 parser,
                 json_mode=True,
                 exit_code=proc.returncode,
                 message=message,
                 payload=_contract_payload(reason, error=message),
+                support=support if package_support_on_failure else None,
             )
         error_message = (
             parsed_error.get("error")
@@ -412,12 +587,13 @@ def _run_helper_json(
         return json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         message = f"{helper_name} returned invalid JSON: {exc}"
-        exit_with_cli_error(
+        _exit_with_support(
             parser,
             json_mode=True,
             exit_code=2,
             message=message,
             payload=_contract_payload("registry_contract_invalid", error=message),
+            support=support if package_support_on_failure else None,
         )
     raise AssertionError("unreachable")
 
@@ -436,10 +612,21 @@ def _bridge_candidates(project_root: Path) -> list[str]:
     return [rel for rel in SUPPORTED_BRIDGE_TARGETS if (project_root / rel).is_file()]
 
 
+def _bridge_action_surface(*, bridge_candidates: list[str]) -> dict | None:
+    if not bridge_candidates:
+        return None
+    return {
+        "action_label": "rl-bridge",
+        "surface": "dispatcher/helper",
+        "wrapper_guaranteed": False,
+        "suggested_target": bridge_candidates[0],
+    }
+
+
 def _suggested_next_actions(*, bridge_candidates: list[str]) -> list[str]:
     actions = ["rl-resume", "rl-status"]
     if bridge_candidates:
-        actions.insert(1, f"rl-bridge --file {bridge_candidates[0]} --yes")
+        actions.insert(1, "review_bridge_candidates")
     return actions
 
 
@@ -453,11 +640,99 @@ def _print_init_summary(payload: dict) -> None:
         print("Bridge candidates:")
         for item in payload["bridge_candidates"]:
             print(f"  - {item}")
+    bridge_action_surface = payload.get("bridge_action_surface")
+    if isinstance(bridge_action_surface, dict):
+        action_label = bridge_action_surface.get("action_label")
+        surface = bridge_action_surface.get("surface")
+        suggested_target = bridge_action_surface.get("suggested_target")
+        if action_label and surface and suggested_target:
+            print(
+                "Bridge action surface: "
+                f"{action_label} via {surface} (review target: {suggested_target})"
+            )
     if payload.get("bridge_applied"):
         print(f"Bridge applied: {payload['bridge_applied'][0]['target']}")
     print("Suggested next actions:")
     for action in payload["suggested_next_actions"]:
         print(f"  - {action}")
+
+
+def _public_path_list(paths: object, *, project_root: Path) -> list[str]:
+    if not isinstance(paths, list):
+        return []
+    public_paths: list[str] = []
+    for path in paths:
+        public_path = public_project_path(path, project_root=project_root)
+        if public_path is not None:
+            public_paths.append(public_path)
+    return public_paths
+
+
+def _public_validate_payload(payload: dict, *, project_root: Path) -> dict:
+    public_payload = dict(payload)
+    public_payload["project_root"] = public_project_root_label(project_root)
+    public_payload["storage_root"] = public_project_path(
+        payload.get("storage_root"),
+        project_root=project_root,
+    )
+    findings = payload.get("findings")
+    if isinstance(findings, list):
+        public_payload["findings"] = []
+        for finding in findings:
+            if not isinstance(finding, dict):
+                public_payload["findings"].append(finding)
+                continue
+            public_finding = dict(finding)
+            if "path" in public_finding:
+                public_finding["path"] = public_project_path(
+                    public_finding.get("path"),
+                    project_root=project_root,
+                )
+            public_payload["findings"].append(public_finding)
+    return public_payload
+
+
+def _public_bridge_results(results: object, *, project_root: Path) -> list[dict] | None:
+    if results is None:
+        return None
+    if not isinstance(results, list):
+        return results
+    public_results: list[dict] = []
+    for result in results:
+        if not isinstance(result, dict):
+            public_results.append(result)
+            continue
+        public_result = dict(result)
+        if "target" in public_result:
+            public_result["target"] = public_project_path(
+                public_result.get("target"),
+                project_root=project_root,
+            )
+        attach_scan = public_result.get("attach_scan")
+        if isinstance(attach_scan, dict) and "target" in attach_scan:
+            public_attach_scan = dict(attach_scan)
+            public_attach_scan["target"] = public_project_path(
+                public_attach_scan.get("target"),
+                project_root=project_root,
+            )
+            public_result["attach_scan"] = public_attach_scan
+        public_results.append(public_result)
+    return public_results
+
+
+def _public_init_payload(payload: dict, *, project_root: Path) -> dict:
+    public_payload = dict(payload)
+    public_payload["project_root"] = public_project_root_label(project_root)
+    public_payload["storage_root"] = public_project_path(
+        payload.get("storage_root"),
+        project_root=project_root,
+    )
+    for field in ("created", "skipped"):
+        public_payload[field] = _public_path_list(
+            payload.get(field),
+            project_root=project_root,
+        )
+    return public_payload
 
 
 def _status_like_helper_args(args: argparse.Namespace) -> list[str]:
@@ -472,6 +747,319 @@ def _status_like_helper_args(args: argparse.Namespace) -> list[str]:
         helper_args.extend(["--preferred-date", args.preferred_date])
     if args.session_intent:
         helper_args.extend(["--session-intent", args.session_intent])
+    return helper_args
+
+
+def _append_helper_args(args: argparse.Namespace) -> list[str]:
+    helper_args = [args.target]
+    if args.entry_json is not None:
+        helper_args.extend(["--entry-json", args.entry_json])
+    if args.input_format is not None:
+        helper_args.extend(["--input-format", args.input_format])
+    if args.stdin:
+        helper_args.append("--stdin")
+    if args.entry_file is not None:
+        helper_args.extend(["--entry-file", args.entry_file])
+    if args.date is not None:
+        helper_args.extend(["--date", args.date])
+    if args.allow_historical:
+        helper_args.append("--allow-historical")
+    if args.no_auto_detect:
+        helper_args.append("--no-auto-detect")
+    if args.writer_id is not None:
+        helper_args.extend(["--writer-id", args.writer_id])
+    if args.expected_workspace_revision is not None:
+        helper_args.extend(["--expected-workspace-revision", str(args.expected_workspace_revision)])
+    return helper_args
+
+
+WRITE_TYPE_FILE_KEYS = {
+    "current-state": "rolling_summary",
+    "stable-context": "context_brief",
+    "protocol-rules": "update_protocol",
+}
+
+
+def _write_input_mode(args: argparse.Namespace) -> str | None:
+    if args.source_file is not None and args.stdin:
+        return None
+    if args.source_file is not None:
+        return "file"
+    if args.stdin:
+        return "stdin"
+    return None
+
+
+def _write_invalid_input_payload(
+    *,
+    message: str,
+    recovery_command: str,
+    details: dict | None = None,
+) -> dict:
+    return cli_failure_payload(
+        "invalid_prepared_input",
+        error=message,
+        details=details,
+        extra={
+            "suggestion": (
+                "Phase 1 does not infer write targets from prepared content. "
+                "Choose one explicit --type and one explicit input source, then retry."
+            ),
+            "recovery_command": recovery_command,
+        },
+    )
+
+
+def _exit_write_invalid_input(
+    parser,
+    args: argparse.Namespace,
+    *,
+    support: dict,
+    message: str,
+    recovery_command: str,
+    details: dict | None = None,
+) -> None:
+    _exit_with_support(
+        parser,
+        json_mode=args.json,
+        exit_code=2,
+        message=message,
+        payload=_write_invalid_input_payload(
+            message=message,
+            recovery_command=recovery_command,
+            details=details,
+        ),
+        support=support,
+    )
+
+
+def _validate_write_args(parser, args: argparse.Namespace, *, support: dict) -> tuple[str, str]:
+    if args.write_type is None:
+        _exit_write_invalid_input(
+            parser,
+            args,
+            support=support,
+            message=(
+                "Missing --type. Phase 1 write dispatch does not infer whether prepared content "
+                "belongs to current-state, stable-context, or protocol-rules."
+            ),
+            recovery_command=(
+                "recallloom.py write <project> --type current-state "
+                "--source-file <prepared-file> --json"
+            ),
+            details={
+                "accepted_write_types": sorted(WRITE_TYPE_FILE_KEYS),
+                "phase_1_infers_target": False,
+            },
+        )
+    file_key = WRITE_TYPE_FILE_KEYS.get(args.write_type)
+    if file_key is None:
+        _exit_write_invalid_input(
+            parser,
+            args,
+            support=support,
+            message=(
+                f"Unsupported --type '{args.write_type}'. Phase 1 write dispatch only accepts "
+                "current-state, stable-context, or protocol-rules and does not infer targets."
+            ),
+            recovery_command=(
+                "recallloom.py write <project> --type current-state "
+                "--source-file <prepared-file> --json"
+            ),
+            details={
+                "accepted_write_types": sorted(WRITE_TYPE_FILE_KEYS),
+                "received_write_type": args.write_type,
+                "phase_1_infers_target": False,
+            },
+        )
+    input_mode = _write_input_mode(args)
+    if input_mode is None:
+        if args.source_file is not None and args.stdin:
+            message = "Use exactly one prepared-content input for write: --source-file or --stdin."
+        else:
+            message = "Provide prepared content for write with exactly one of --source-file or --stdin."
+        _exit_write_invalid_input(
+            parser,
+            args,
+            support=support,
+            message=message,
+            recovery_command=(
+                f"recallloom.py write <project> --type {args.write_type} "
+                "--source-file <prepared-file> --json"
+            ),
+            details={
+                "input_contract": "source-file_xor_stdin",
+                "source_file_present": args.source_file is not None,
+                "stdin_present": bool(args.stdin),
+            },
+        )
+    return file_key, input_mode
+
+
+def _preflight_payload(parser, args: argparse.Namespace, *, support: dict) -> dict:
+    return _run_helper_json(
+        parser,
+        helper_name="preflight_context_check.py",
+        helper_args=[args.target],
+        json_mode_on_failure=args.json,
+        support=support,
+        package_support_on_failure=True,
+    )
+
+
+def _preflight_gate_details(preflight_payload: dict) -> dict:
+    detail_keys = (
+        "allowed_operation_level",
+        "summary_stale",
+        "continuity_drift_risk_level",
+        "freshness_risk_level",
+        "recommended_actions",
+        "continuity_confidence",
+        "continuity_state",
+        "workspace_newer_than_summary",
+        "summary_revision_stale",
+    )
+    return {key: preflight_payload.get(key) for key in detail_keys if key in preflight_payload}
+
+
+def _enforce_write_preflight_gate(
+    parser,
+    args: argparse.Namespace,
+    *,
+    preflight_payload: dict,
+    support: dict,
+) -> None:
+    allowed_operation_level = preflight_payload.get("allowed_operation_level")
+    summary_stale = preflight_payload.get("summary_stale")
+    if allowed_operation_level == "write_current_state_after_preflight" and summary_stale is False:
+        return
+
+    message = (
+        "Preflight requires review before write. recallloom.py write only proceeds when "
+        "allowed_operation_level is write_current_state_after_preflight and summary_stale is false."
+    )
+    _exit_with_support(
+        parser,
+        json_mode=args.json,
+        exit_code=3,
+        message=message,
+        payload=cli_failure_payload(
+            "stale_write_context",
+            error=message,
+            details=_preflight_gate_details(preflight_payload),
+        ),
+        support=support,
+    )
+
+
+def _write_context_from_preflight(
+    parser,
+    args: argparse.Namespace,
+    *,
+    file_key: str,
+    preflight_payload: dict,
+    support: dict,
+) -> dict:
+    safe_write_context = preflight_payload.get("safe_write_context")
+    commit_contexts = (
+        safe_write_context.get("commit_context_file")
+        if isinstance(safe_write_context, dict)
+        else None
+    )
+    write_context = commit_contexts.get(file_key) if isinstance(commit_contexts, dict) else None
+    if not isinstance(write_context, dict):
+        message = f"Preflight did not provide a safe commit_context_file context for {file_key}."
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("malformed_managed_file", error=message),
+            support=support,
+        )
+    expected_file_revision = write_context.get("expected_file_revision")
+    expected_workspace_revision = write_context.get("expected_workspace_revision")
+    if not isinstance(expected_file_revision, int) or not isinstance(expected_workspace_revision, int):
+        message = f"Preflight returned incomplete write revisions for {file_key}."
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("malformed_managed_file", error=message),
+            support=support,
+        )
+    relative_path = write_context.get("target_path") or write_context.get("path")
+    if not isinstance(relative_path, str):
+        message = f"Preflight returned incomplete target path information for {file_key}."
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("registry_contract_invalid", error=message),
+            support=support,
+        )
+    try:
+        workspace = find_recallloom_root(args.target)
+    except (StorageResolutionError, ConfigContractError) as exc:
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="damaged_sidecar"),
+            support=support,
+        )
+    if workspace is None:
+        message = "Preflight target is no longer attached to RecallLoom."
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("no_project_root", error=message),
+            support=support,
+        )
+    target_path = public_project_path(relative_path, project_root=workspace.project_root)
+    if not isinstance(target_path, str):
+        message = f"Preflight returned an invalid public target path for {file_key}."
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=message,
+            payload=cli_failure_payload("registry_contract_invalid", error=message),
+            support=support,
+        )
+    return {
+        "target_path": target_path,
+        "expected_file_revision": expected_file_revision,
+        "expected_workspace_revision": expected_workspace_revision,
+    }
+
+
+def _commit_context_file_args(
+    args: argparse.Namespace,
+    *,
+    file_key: str,
+    write_context: dict,
+) -> list[str]:
+    helper_args = [
+        args.target,
+        "--file-key",
+        file_key,
+        "--expected-file-revision",
+        str(write_context["expected_file_revision"]),
+        "--expected-workspace-revision",
+        str(write_context["expected_workspace_revision"]),
+    ]
+    if args.source_file is not None:
+        helper_args.extend(["--source-file", args.source_file])
+    if args.stdin:
+        helper_args.append("--stdin")
+    if args.writer_id is not None:
+        helper_args.extend(["--writer-id", args.writer_id])
     return helper_args
 
 
@@ -492,6 +1080,435 @@ def _resume_payload(payload: dict) -> dict:
     if isinstance(snapshot, dict):
         result["continuity_snapshot"] = {**snapshot, "task_type": "resume_checkpoint"}
     return result
+
+
+def _dispatcher_action_level(command: str) -> str:
+    if command == "quick-summary":
+        return "diagnostic"
+    if command in {"append", "write"}:
+        return "mutating"
+    return action_level_for_dispatcher(command)
+
+
+def _handle_quick_summary(parser, args: argparse.Namespace, *, support: dict) -> None:
+    try:
+        start_path = normalize_start_path(args.target)
+    except StorageResolutionError as exc:
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="not_project_root"),
+            support=support,
+        )
+    try:
+        workspace = find_recallloom_root(args.target)
+    except (StorageResolutionError, ConfigContractError) as exc:
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(
+                exc,
+                default_reason="damaged_sidecar",
+                extra={"continuity_confidence": "broken"},
+            ),
+            support=support,
+        )
+
+    if workspace is None:
+        payload = build_no_project_payload(start_path)
+    else:
+        try:
+            summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
+            if not summary_path.is_file():
+                message = f"Missing required file: {summary_path}"
+                _exit_with_support(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=message,
+                    payload=cli_failure_payload("malformed_managed_file", error=message),
+                    support=support,
+                )
+            summary_text = read_text(summary_path)
+            summary_state = parse_file_state_marker(summary_text)
+            if summary_state is None:
+                message = f"Missing required file-state metadata marker: {summary_path}"
+                _exit_with_support(
+                    parser,
+                    json_mode=args.json,
+                    exit_code=2,
+                    message=message,
+                    payload=cli_failure_payload("malformed_managed_file", error=message),
+                    support=support,
+                )
+            state = load_workspace_state(workspace.storage_root / FILE_KEYS["state"])
+        except (ConfigContractError, OSError, UnicodeDecodeError) as exc:
+            _exit_with_support(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=str(exc),
+                payload=cli_failure_payload_for_exception(
+                    exc,
+                    default_reason="damaged_sidecar",
+                    extra={"continuity_confidence": "broken"},
+                ),
+                support=support,
+            )
+        payload = build_quick_summary_payload(
+            project_root=workspace.project_root,
+            storage_root=workspace.storage_root,
+            summary_path=summary_path,
+            summary_text=summary_text,
+            summary_revision=summary_state.revision,
+            summary_base_workspace_revision=summary_state.base_workspace_revision,
+            state=state,
+        )
+
+    if args.json:
+        payload["package_support"] = public_package_support_payload(support)
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    print(f"RecallLoom quick summary target: {payload['project_root']}")
+    storage_root = payload.get("storage_root")
+    if storage_root:
+        print(f"Storage root: {storage_root}")
+    summary = payload["summary"]
+    print(f"Project: {summary['project'] or 'none'}")
+    print(f"Phase: {summary['phase']}")
+    print(f"Confidence: {summary['confidence']}")
+    if summary["next_step"]:
+        print(f"Next step: {summary['next_step']}")
+    freshness = payload["freshness"]
+    print(
+        "Freshness: "
+        f"stale={'yes' if freshness['summary_stale'] else 'no'} "
+        f"(risk={freshness['freshness_risk_level']})"
+    )
+    print("Next actions:")
+    for action in payload["next_actions"]:
+        print(f"  - {action}")
+
+
+def _project_relative_path(path: Path, project_root: Path) -> str:
+    return path.relative_to(project_root).as_posix()
+
+
+def _compact_guidance(text: str, *, max_chars: int = 360) -> str | None:
+    lines: list[str] = []
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("<!--"):
+            continue
+        stripped = stripped.lstrip("#-* ").strip()
+        if stripped:
+            lines.append(stripped)
+    compacted = " ".join(lines)
+    if not compacted:
+        return None
+    if len(compacted) <= max_chars:
+        return compacted
+    return compacted[: max_chars - 3].rstrip(" ,;:|/-") + "..."
+
+
+def _estimated_tokens_for_texts(files: list[str], text_by_path: dict[str, str]) -> int:
+    total = 0
+    for rel_path in files:
+        text = text_by_path.get(rel_path, "")
+        total += max(64, (len(text) + 3) // 4) if text else 64
+    return total
+
+
+def _progressive_resume_read_plan(
+    *,
+    mode: str,
+    project_root: Path,
+    storage_root: Path,
+    state_text: str,
+    summary_text: str,
+    context_brief_text: str = "",
+    update_protocol_text: str = "",
+) -> dict:
+    state_rel = _project_relative_path(storage_root / FILE_KEYS["state"], project_root)
+    summary_rel = _project_relative_path(storage_root / FILE_KEYS["rolling_summary"], project_root)
+    files = [state_rel, summary_rel]
+    text_by_path = {
+        state_rel: state_text,
+        summary_rel: summary_text,
+    }
+    if mode == "full":
+        context_rel = _project_relative_path(storage_root / FILE_KEYS["context_brief"], project_root)
+        update_protocol_rel = _project_relative_path(storage_root / FILE_KEYS["update_protocol"], project_root)
+        files.extend([context_rel, update_protocol_rel])
+        text_by_path[context_rel] = context_brief_text
+        text_by_path[update_protocol_rel] = update_protocol_text
+    reason = (
+        "Fast bounded resume reads only state.json and rolling_summary.md for current-state orientation."
+        if mode == "fast"
+        else (
+            "Full bounded resume adds context_brief.md and update_protocol.md guidance; "
+            "evidence expansion remains on demand."
+        )
+    )
+    return {
+        "mode": mode,
+        "files": files,
+        "reason": reason,
+        "estimated_tokens": _estimated_tokens_for_texts(files, text_by_path),
+        "bounded": True,
+    }
+
+
+def _resume_continuity_state(quick_payload: dict) -> str:
+    phase = quick_payload.get("summary", {}).get("phase")
+    if phase == "no_project":
+        return "no_project"
+    if phase == "unseeded":
+        return "initialized_empty_shell"
+    return "initialized_seeded"
+
+
+def _resume_next_actions(*, mode: str, quick_actions: list[str]) -> list[str]:
+    actions = list(quick_actions)
+    if mode == "fast":
+        actions.append("rerun_resume_with_full_when_stable_context_or_protocol_guidance_is_needed")
+    actions.append("use_query_continuity.py_on_demand_for_daily_log_evidence")
+    return actions
+
+
+def _build_progressive_resume_payload(
+    parser,
+    args: argparse.Namespace,
+    *,
+    mode: str,
+    support: dict,
+) -> dict:
+    try:
+        start_path = normalize_start_path(args.target)
+    except StorageResolutionError as exc:
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(exc, default_reason="not_project_root"),
+            support=support,
+        )
+    try:
+        workspace = find_recallloom_root(args.target)
+    except (StorageResolutionError, ConfigContractError) as exc:
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(
+                exc,
+                default_reason="damaged_sidecar",
+                extra={"continuity_confidence": "broken"},
+            ),
+            support=support,
+        )
+
+    if workspace is None:
+        quick_payload = build_no_project_payload(start_path)
+        continuity_state = _resume_continuity_state(quick_payload)
+        payload = {
+            "schema_version": "1.1",
+            "ok": True,
+            "command": "resume",
+            "routing_target": "rl-resume",
+            "resume_mode": mode,
+            "resume_ready": False,
+            "project_root": public_project_root_label(start_path),
+            "storage_root": None,
+            "current_state": quick_payload["summary"],
+            "summary": quick_payload["summary"],
+            "freshness": quick_payload["freshness"],
+            "trust": {
+                "continuity_confidence": "none",
+                "continuity_state": continuity_state,
+                "summary_stale": False,
+                "resume_ready": False,
+            },
+            "continuity_confidence": "none",
+            "continuity_state": continuity_state,
+            "progressive_read_plan": {
+                "mode": mode,
+                "files": [],
+                "reason": "No RecallLoom sidecar was found, so no continuity files were read.",
+                "estimated_tokens": 0,
+                "bounded": True,
+            },
+            "next_actions": list(quick_payload["next_actions"]),
+            "package_support": public_package_support_payload(support),
+        }
+        return payload
+
+    try:
+        summary_path = workspace.storage_root / FILE_KEYS["rolling_summary"]
+        if not summary_path.is_file():
+            message = f"Missing required file: {summary_path}"
+            _exit_with_support(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=message,
+                payload=cli_failure_payload("malformed_managed_file", error=message),
+                support=support,
+            )
+        summary_text = read_text(summary_path)
+        summary_state = parse_file_state_marker(summary_text)
+        if summary_state is None:
+            message = f"Missing required file-state metadata marker: {summary_path}"
+            _exit_with_support(
+                parser,
+                json_mode=args.json,
+                exit_code=2,
+                message=message,
+                payload=cli_failure_payload("malformed_managed_file", error=message),
+                support=support,
+            )
+        state = load_workspace_state(workspace.storage_root / FILE_KEYS["state"])
+        state_text = json.dumps(state, ensure_ascii=False, indent=2) + "\n"
+    except (ConfigContractError, OSError, UnicodeDecodeError) as exc:
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload_for_exception(
+                exc,
+                default_reason="damaged_sidecar",
+                extra={"continuity_confidence": "broken"},
+            ),
+            support=support,
+        )
+
+    quick_payload = build_quick_summary_payload(
+        project_root=workspace.project_root,
+        storage_root=workspace.storage_root,
+        summary_path=summary_path,
+        summary_text=summary_text,
+        summary_revision=summary_state.revision,
+        summary_base_workspace_revision=summary_state.base_workspace_revision,
+        state=state,
+    )
+    continuity_state = _resume_continuity_state(quick_payload)
+    continuity_confidence = quick_payload["summary"]["confidence"]
+    base_payload = {
+        "schema_version": "1.1",
+        "ok": True,
+        "command": "resume",
+        "routing_target": "rl-resume",
+        "resume_mode": mode,
+        "project_root": public_project_root_label(workspace.project_root),
+        "storage_root": public_project_path(workspace.storage_root, project_root=workspace.project_root),
+        "current_state": quick_payload["summary"],
+        "summary": quick_payload["summary"],
+        "freshness": quick_payload["freshness"],
+        "trust": {
+            "continuity_confidence": continuity_confidence,
+            "continuity_state": continuity_state,
+            "summary_stale": quick_payload["freshness"]["summary_stale"],
+        },
+        "continuity_confidence": continuity_confidence,
+        "continuity_state": continuity_state,
+        "next_actions": _resume_next_actions(mode=mode, quick_actions=quick_payload["next_actions"]),
+        "package_support": public_package_support_payload(support),
+    }
+    base_payload["resume_ready"] = _resume_ready(base_payload)
+    base_payload["trust"]["resume_ready"] = base_payload["resume_ready"]
+
+    if mode == "fast":
+        base_payload["progressive_read_plan"] = _progressive_resume_read_plan(
+            mode=mode,
+            project_root=workspace.project_root,
+            storage_root=workspace.storage_root,
+            state_text=state_text,
+            summary_text=summary_text,
+        )
+        return base_payload
+
+    context_brief_path = workspace.storage_root / FILE_KEYS["context_brief"]
+    update_protocol_path = workspace.storage_root / FILE_KEYS["update_protocol"]
+    try:
+        context_brief_text = read_text(context_brief_path) if context_brief_path.is_file() else ""
+        update_protocol_text = read_text(update_protocol_path) if update_protocol_path.is_file() else ""
+    except (OSError, UnicodeDecodeError) as exc:
+        _exit_with_support(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=str(exc),
+            payload=cli_failure_payload(
+                "damaged_sidecar",
+                error=f"Filesystem error: {exc}",
+                extra={"continuity_confidence": "broken"},
+            ),
+            support=support,
+        )
+    base_payload["progressive_read_plan"] = _progressive_resume_read_plan(
+        mode=mode,
+        project_root=workspace.project_root,
+        storage_root=workspace.storage_root,
+        state_text=state_text,
+        summary_text=summary_text,
+        context_brief_text=context_brief_text,
+        update_protocol_text=update_protocol_text,
+    )
+    base_payload["expansion"] = {
+        "reason": (
+            "Explicit --full requested bounded stable framing and project-local update-protocol guidance. "
+            "Daily-log evidence is intentionally left to query_continuity.py on demand."
+        ),
+        "default_reads_daily_log_content": False,
+    }
+    base_payload["context_brief"] = {
+        "available": context_brief_path.is_file(),
+        "path": _project_relative_path(context_brief_path, workspace.project_root),
+        "guidance": _compact_guidance(context_brief_text),
+    }
+    base_payload["update_protocol_guidance"] = {
+        "available": update_protocol_path.is_file(),
+        "path": _project_relative_path(update_protocol_path, workspace.project_root),
+        "guidance": _compact_guidance(update_protocol_text),
+    }
+    return base_payload
+
+
+def _print_progressive_resume_summary(payload: dict) -> None:
+    print(f"RecallLoom resume target: {payload['project_root']}")
+    print("Routing target: rl-resume")
+    print(f"Resume mode: {payload['resume_mode']}")
+    print(f"Resume ready: {'yes' if payload['resume_ready'] else 'no'}")
+    print(f"Confidence: {payload.get('continuity_confidence')}")
+    print(f"State: {payload.get('continuity_state')}")
+    next_step = payload.get("current_state", {}).get("next_step")
+    if next_step:
+        print(f"Next step: {next_step}")
+    read_plan = payload.get("progressive_read_plan", {})
+    reason = read_plan.get("reason")
+    if reason:
+        print(f"Bounded read: {reason}")
+    if payload.get("resume_mode") == "full":
+        expansion = payload.get("expansion", {})
+        if expansion.get("reason"):
+            print(f"Bounded expansion reason: {expansion['reason']}")
+        guidance = payload.get("update_protocol_guidance", {}).get("guidance")
+        if guidance:
+            print(f"Update protocol guidance: {guidance}")
+    print("Read files:")
+    for rel_path in read_plan.get("files", []):
+        print(f"  - {rel_path}")
+    print("Next actions:")
+    for action in payload.get("next_actions", []):
+        print(f"  - {action}")
 
 
 def _print_resume_summary(payload: dict) -> None:
@@ -532,6 +1549,7 @@ def _handle_init(parser, args: argparse.Namespace, *, support: dict) -> None:
         helper_name="init_context.py",
         helper_args=init_args,
         json_mode_on_failure=args.json,
+        support=support,
     )
     if not init_payload.get("project_root") or not init_payload.get("storage_root"):
         message = "init_context.py returned an incomplete payload."
@@ -548,6 +1566,7 @@ def _handle_init(parser, args: argparse.Namespace, *, support: dict) -> None:
         helper_name="validate_context.py",
         helper_args=[args.target],
         json_mode_on_failure=args.json,
+        support=support,
     )
 
     bridge_payload = None
@@ -566,10 +1585,12 @@ def _handle_init(parser, args: argparse.Namespace, *, support: dict) -> None:
             helper_name="manage_entry_bridge.py",
             helper_args=[args.target, "--file", args.bridge, "--yes"],
             json_mode_on_failure=args.json,
+            support=support,
         )
 
-    project_root = Path(init_payload["project_root"])
+    project_root = Path(args.target).expanduser().resolve()
     bridge_candidates = _bridge_candidates(project_root)
+    bridge_results = bridge_payload.get("results") if bridge_payload else None
     payload = {
         "ok": True,
         "command": "init",
@@ -583,14 +1604,92 @@ def _handle_init(parser, args: argparse.Namespace, *, support: dict) -> None:
         "init": init_payload,
         "validate": validate_payload,
         "bridge_candidates": bridge_candidates,
-        "bridge_applied": bridge_payload.get("results") if bridge_payload else None,
+        "bridge_action_surface": _bridge_action_surface(bridge_candidates=bridge_candidates),
+        "bridge_applied": bridge_results,
         "suggested_next_actions": _suggested_next_actions(bridge_candidates=bridge_candidates),
-        "package_support": support,
+        "package_support": public_package_support_payload(support),
     }
+    if args.json:
+        public_payload = {
+            **payload,
+            "project_root": public_project_root_label(project_root),
+            "storage_root": public_project_path(
+                init_payload.get("storage_root"),
+                project_root=project_root,
+            ),
+            "init": _public_init_payload(init_payload, project_root=project_root),
+            "validate": _public_validate_payload(validate_payload, project_root=project_root),
+            "bridge_applied": _public_bridge_results(bridge_results, project_root=project_root),
+        }
+        print(json.dumps(public_payload, ensure_ascii=False, indent=2))
+    else:
+        _print_init_summary(payload)
+
+
+def _handle_write(parser, args: argparse.Namespace, *, support: dict) -> None:
+    file_key, input_mode = _validate_write_args(parser, args, support=support)
+    preflight_payload = _preflight_payload(parser, args, support=support)
+    _enforce_write_preflight_gate(
+        parser,
+        args,
+        preflight_payload=preflight_payload,
+        support=support,
+    )
+    write_context = _write_context_from_preflight(
+        parser,
+        args,
+        file_key=file_key,
+        preflight_payload=preflight_payload,
+        support=support,
+    )
+
+    if args.dry_run:
+        payload = {
+            "ok": True,
+            "schema_version": "1.1",
+            "command": "write",
+            "write_type": args.write_type,
+            "file_key": file_key,
+            "dry_run": True,
+            "input_mode": input_mode,
+            "project_root": preflight_payload.get("project_root"),
+            "storage_root": preflight_payload.get("storage_root"),
+            "target_path": write_context["target_path"],
+            "expected_file_revision": write_context["expected_file_revision"],
+            "expected_workspace_revision": write_context["expected_workspace_revision"],
+            "package_support": public_package_support_payload(support),
+        }
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print(f"RecallLoom write dry-run target: {payload['target_path']}")
+            print(f"Write type: {args.write_type} ({file_key})")
+            print(f"Expected file revision: {write_context['expected_file_revision']}")
+            print(f"Expected workspace revision: {write_context['expected_workspace_revision']}")
+        return
+
+    payload = _run_helper_json(
+        parser,
+        helper_name="commit_context_file.py",
+        helper_args=_commit_context_file_args(args, file_key=file_key, write_context=write_context),
+        json_mode_on_failure=args.json,
+        support=support,
+        package_support_on_failure=True,
+    )
+    payload.update(
+        {
+            "schema_version": "1.1",
+            "command": "write",
+            "write_type": args.write_type,
+            "dry_run": False,
+            "package_support": public_package_support_payload(support),
+            "target_path": write_context["target_path"],
+        }
+    )
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     else:
-        _print_init_summary(payload)
+        print(f"Committed {file_key} to {payload.get('target_path', write_context['target_path'])}")
 
 
 def main() -> None:
@@ -610,7 +1709,7 @@ def main() -> None:
         parser,
         json_mode=getattr(args, "json", False),
         action_name=f"recallloom.py {args.command}",
-        action_level=action_level_for_dispatcher(args.command),
+        action_level=_dispatcher_action_level(args.command),
     )
 
     if args.command == "init":
@@ -624,11 +1723,22 @@ def main() -> None:
                 helper_name="validate_context.py",
                 helper_args=[args.target],
                 json_mode_on_failure=True,
+                support=support,
             )
-            payload["package_support"] = support
-            print(json.dumps(payload, ensure_ascii=False, indent=2))
+            public_payload = dict(payload)
+            public_payload["package_support"] = public_package_support_payload(support)
+            print(json.dumps(public_payload, ensure_ascii=False, indent=2))
         else:
             _run_helper_passthrough(helper_name="validate_context.py", helper_args=[args.target])
+        return
+
+    if args.command == "resume" and (args.fast or args.full):
+        mode = "full" if args.full else "fast"
+        payload = _build_progressive_resume_payload(parser, args, mode=mode, support=support)
+        if args.json:
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            _print_progressive_resume_summary(payload)
         return
 
     if args.command in {"status", "resume"}:
@@ -639,10 +1749,11 @@ def main() -> None:
                 helper_name="summarize_continuity_status.py",
                 helper_args=helper_args,
                 json_mode_on_failure=True,
+                support=support,
             )
             if args.command == "resume":
                 payload = _resume_payload(payload)
-            payload["package_support"] = support
+            payload["package_support"] = public_package_support_payload(support)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             if args.command == "resume":
@@ -651,12 +1762,38 @@ def main() -> None:
                     helper_name="summarize_continuity_status.py",
                     helper_args=helper_args,
                     json_mode_on_failure=False,
+                    support=support,
                 )
                 _print_resume_summary(_resume_payload(payload))
             else:
                 _run_helper_passthrough(
                     helper_name="summarize_continuity_status.py", helper_args=helper_args
                 )
+        return
+
+    if args.command == "quick-summary":
+        _handle_quick_summary(parser, args, support=support)
+        return
+
+    if args.command == "append":
+        helper_args = _append_helper_args(args)
+        if args.json:
+            payload = _run_helper_json(
+                parser,
+                helper_name="append_daily_log_entry.py",
+                helper_args=helper_args,
+                json_mode_on_failure=True,
+                support=support,
+                package_support_on_failure=True,
+            )
+            payload["package_support"] = public_package_support_payload(support)
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            _run_helper_passthrough(helper_name="append_daily_log_entry.py", helper_args=helper_args)
+        return
+
+    if args.command == "write":
+        _handle_write(parser, args, support=support)
         return
 
     if args.command == "bridge":
@@ -673,8 +1810,9 @@ def main() -> None:
                 helper_name="manage_entry_bridge.py",
                 helper_args=helper_args,
                 json_mode_on_failure=True,
+                support=support,
             )
-            payload["package_support"] = support
+            payload["package_support"] = public_package_support_payload(support)
             print(json.dumps(payload, ensure_ascii=False, indent=2))
         else:
             _run_helper_passthrough(helper_name="manage_entry_bridge.py", helper_args=helper_args)

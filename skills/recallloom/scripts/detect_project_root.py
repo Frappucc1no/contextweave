@@ -17,6 +17,7 @@ from _common import (
     exit_with_cli_error,
     find_recallloom_root,
     normalize_start_path,
+    public_json_payload,
 )
 
 
@@ -106,7 +107,13 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         print(workspace.project_root)
 

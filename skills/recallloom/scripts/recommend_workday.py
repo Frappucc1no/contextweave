@@ -128,6 +128,7 @@ from _common import (
     parse_daily_log_entry_line,
     parse_file_state_marker,
     parse_iso_date,
+    public_json_payload,
     read_text,
     StorageResolutionError,
 )
@@ -434,7 +435,13 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return
 
     print(f"RecallLoom root: {workspace.project_root}")

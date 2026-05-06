@@ -24,6 +24,7 @@ from _common import (
     find_recallloom_root,
     LockBusyError,
     now_iso_timestamp,
+    public_json_payload,
     read_text,
     RECOVERY_PROPOSAL_FILE_RE,
     StorageResolutionError,
@@ -253,7 +254,13 @@ def main() -> None:
         "recorded_at": now_iso_timestamp(),
     }
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         print(f"Recorded recovery review: {review_path}")
 

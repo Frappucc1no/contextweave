@@ -33,6 +33,7 @@ from _common import (
     latest_active_daily_log,
     managed_file_contract_issue,
     now_iso_timestamp,
+    public_json_payload,
     restore_text_snapshot,
     StorageResolutionError,
     ensure_supported_python_version,
@@ -451,7 +452,13 @@ def main() -> None:
     }
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         for result in results:
             if not args.yes:

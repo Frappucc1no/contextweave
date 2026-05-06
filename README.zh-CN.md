@@ -6,7 +6,7 @@
 
 **为跨智能体、跨会话、跨模型持续推进的项目准备的连续性层。**
 
-[![Version](https://img.shields.io/badge/version-v0.3.4-6b7280)](./skills/recallloom/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.3.5-6b7280)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
@@ -18,7 +18,7 @@
   <img src="./docs/images/readme-topbanner.zh-CN.png" alt="RecallLoom 顶部主视觉" />
 </p>
 
-如果你每次切到新的 `Claude Code`、`Codex`、`Gemini CLI` 或新的智能体，都要先花十分钟重新解释项目，那你真正缺的通常不是更聪明的模型，而是一层不会丢的 **项目连续性**。
+如果你每次切到新的受支持的编码智能体、基于目录安装的工具或新会话，都要先花十分钟重新解释项目，那你真正缺的通常不是更聪明的模型，而是一层不会丢的 **项目连续性**。
 
 RecallLoom 把项目为什么存在、现在什么是真的、最近推进到哪里、下一步该怎么接上，留在项目本身，而不是锁在某个平台的私有记忆里。它不是另一个后台，不是平台私有记忆，也不是替你静默读懂整个仓库的黑盒；它做的事情更克制：把长期项目真正需要保留下来的项目现实留在工作区里，让下一个会话能直接接上。
 
@@ -65,7 +65,7 @@ RecallLoom 在项目里保留的是一套小而清楚的连续性结构。它不
 最容易立刻感受到价值的是：
 
 - **已经习惯让 AI 参与真实项目的人**：尤其是个人开发者和超小团队，会反复把同一个项目交给不同会话、不同模型、不同智能体继续推进。
-- **经常在 `Claude Code`、`Codex`、`Gemini CLI` 等工具之间切换的人**：不想每换一次工具就重讲一遍项目。
+- **经常在受支持的编码智能体和基于目录安装的工具之间切换的人**：不想每换一次工具就重讲一遍项目。
 - **研究写作、产品文档、软件项目协调**：这些工作都特别依赖项目缘由、决策、进展和下一步不要漂掉。
 
 典型高价值场景也很集中：
@@ -144,7 +144,7 @@ PROJECT_ROOT/
 <a id="quick-start"></a>
 ## 🚀 快速开始
 
-第一次接入，不需要先背内部命令。按这 4 步走就够了：
+第一次接入，不需要先背专门命令。按这 4 步走就够了：
 
 1. 把技能包安装到本机
 2. 第一次在对话里明确唤起 RecallLoom
@@ -160,6 +160,8 @@ PROJECT_ROOT/
 ```bash
 npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
 ```
+
+v0.3.5 让项目恢复更快、进展记录更结构化，也让托管更新在真正写入前更容易预览。
 
 之后需要更新已安装技能时，使用：
 
@@ -214,6 +216,10 @@ ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/reca
 
 如果你的工具支持稳定动作名，也可以用 `rl-resume` 明确触发恢复；多数时候，直接用自然语言说明要继续项目就够了。
 
+只有当宿主 / router 遵守 RecallLoom 的 restore contract 时，这类通用表达才会直接路由到 RecallLoom；否则请先显式唤起 RecallLoom 或直接使用 `rl-resume`。
+
+更偏操作员的入口也在同一个 dispatcher 里：`quick-summary` 用于低延迟恢复快照，`append --entry-json` 用于结构化追加 daily log，`write --type ... --dry-run` 用于先预览再安全写入。这些是现有 `v0.3.4` 项目的可选采用路径；sidecar protocol 仍保持 `1.0`。
+
 如果想了解更偏操作员视角的命令入口和 helper 操作流，见 [USAGE.md](./USAGE.md)。
 
 ## 📦 技能包结构
@@ -226,6 +232,7 @@ ln -s /absolute/path/to/recall-loom/skills/recallloom /path/to/<skills-dir>/reca
 ```text
 recallloom/
 ├── SKILL.md
+├── managed-assets.json
 ├── profiles/
 ├── references/
 ├── scripts/
@@ -237,6 +244,7 @@ recallloom/
 | 组成部分 | 作用 |
 |---|---|
 | `SKILL.md` | 给 AI 工具读取的主入口文件 |
+| `managed-assets.json` | packaged helpers 使用的必需 managed asset 注册表 |
 | `profiles/` | 面向不同项目形态的默认模式 |
 | `references/` | 协议细节、文件契约和操作说明 |
 | `scripts/` | 用于统一入口、初始化、校验、状态、bridge 和护栏写入的辅助脚本 |
@@ -251,13 +259,23 @@ recallloom/
 ### 版本信息
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- 包版本：`0.3.4`
+- 包版本：`0.3.5`
 - 协议版本：`1.0`
 - 当前支持的协议版本：
   - `1.0`
 <!-- RecallLoom metadata sync end: package-metadata -->
 
 ### 更新记录
+
+<details>
+  <summary><strong>v0.3.5</strong></summary>
+
+- 通过更紧凑的当前状态快照，更快恢复已有项目；需要时再深入读取更多上下文。
+- 用结构化追加记录里程碑进展，并保持每个日进展文件内的条目顺序清晰。
+- 在写入前预览托管更新，让项目背景、当前状态和日进展写入更稳妥。
+- 现有 RecallLoom 项目无需迁移连续性文件；协议兼容性保持 `1.0`。
+
+</details>
 
 <details>
   <summary><strong>v0.3.4</strong></summary>
@@ -360,7 +378,7 @@ recallloom/
 |---|---|---|
 | Skills CLI 生态 | 使用 `npx skills add ... --skill recallloom` 安装；用 `npx skills update` 更新 | 想用统一的技能安装与更新流程时 |
 | Codex | 接入 `.agents/skills/recallloom` | 想在仓库内做项目级长期协作 |
-| Claude Code | 接入 `~/.claude/skills/recallloom` 或 `.claude/skills/recallloom` | 想做用户级或项目级安装 |
+| 受支持的基于目录安装的编码智能体 | 把整个目录接入该智能体的技能文件夹 | 想做用户级或项目级安装 |
 | 其他目录式工具 | 把整个目录接入该工具的技能文件夹 | 想跨工具复用同一套连续性文件 |
 
 </details>

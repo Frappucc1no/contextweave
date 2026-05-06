@@ -3,6 +3,12 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
+import shutil
+import shlex
+import sys
+
+from core.output.privacy import private_json_paths_enabled, publicize_json_value, publicize_text_paths
 
 
 FAILURE_REASON_ALIASES = {
@@ -328,6 +334,469 @@ FAILURE_REASON_REGISTRY = {
     },
 }
 
+FAILURE_PAYLOAD_SCHEMA_VERSION = "1.1"
+_KNOWN_STORAGE_ROOT_NAMES = {".recallloom", "recallloom"}
+
+
+def _localized_text(language: str, *, en: str, zh_cn: str) -> str:
+    return zh_cn if language == "zh-CN" else en
+
+
+def _normalize_script_name(script_name: str | None = None) -> str | None:
+    candidate = script_name or (sys.argv[0] if sys.argv else "")
+    if not candidate:
+        return None
+    name = Path(candidate).name.strip()
+    return name or None
+
+
+def _python_executable() -> str:
+    candidate = sys.executable or "python3"
+    if private_json_paths_enabled():
+        if not os.path.isabs(candidate):
+            candidate = shutil.which(candidate) or candidate
+        return shlex.quote(candidate)
+    public_candidate = Path(candidate).name.strip()
+    return shlex.quote(public_candidate or "python3")
+
+
+def _script_path(script_name: str | None) -> Path:
+    normalized_name = _normalize_script_name(script_name) or "<recallloom-helper>.py"
+    return Path(__file__).resolve().parents[2] / normalized_name
+
+
+def _script_command(script_name: str | None, *args: str) -> str:
+    normalized_name = _normalize_script_name(script_name) or "<recallloom-helper>.py"
+    if normalized_name.endswith(".py"):
+        script_ref = (
+            shlex.quote(str(_script_path(script_name)))
+            if private_json_paths_enabled()
+            else shlex.quote(normalized_name)
+        )
+        base = f"{_python_executable()} {script_ref}"
+    else:
+        base = f"{_python_executable()} {shlex.quote(normalized_name)}"
+    suffix = " ".join(part for part in args if part).strip()
+    return base if not suffix else f"{base} {suffix}"
+
+
+def _quote_or_placeholder(value: str | None, placeholder: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return placeholder
+    return shlex.quote(value)
+
+
+def _prepared_input_mode(details: dict | None) -> str | None:
+    if not details:
+        return None
+    input_mode = details.get("input_mode")
+    if isinstance(input_mode, str) and input_mode.strip():
+        return input_mode
+    return None
+
+
+def _append_input_source_args(details: dict | None) -> list[str] | None:
+    if not details:
+        return None
+    input_mode = _prepared_input_mode(details)
+    entry_path = details.get("entry_path")
+    if input_mode == "json-file":
+        entry_arg = _quote_or_placeholder(
+            entry_path if isinstance(entry_path, str) else None,
+            "entry.json",
+        )
+        return ["--entry-file", entry_arg, "--input-format", "json"]
+    if input_mode == "json-stdin":
+        return ["--stdin", "--input-format", "json"]
+    if isinstance(entry_path, str) and entry_path.strip():
+        return ["--entry-file", shlex.quote(entry_path)]
+    if input_mode == "stdin":
+        return ["--stdin"]
+    return None
+
+
+def _invalid_prepared_input_suggestion(language: str, details: dict | None) -> str:
+    input_mode = _prepared_input_mode(details)
+    if input_mode == "json-string":
+        return _localized_text(
+            language,
+            en="Fix the JSON object passed via --entry-json, then rerun the helper with a valid daily-log section object.",
+            zh_cn="请先修正通过 --entry-json 传入的 JSON 对象，再用合法的 daily-log section 对象重新执行 helper。",
+        )
+    if input_mode == "json-stdin":
+        return _localized_text(
+            language,
+            en="Fix the JSON payload on stdin, then rerun with --stdin --input-format json.",
+            zh_cn="请先修正 stdin 中的 JSON payload，再用 --stdin --input-format json 重新执行。",
+        )
+    if input_mode == "json-file":
+        return _localized_text(
+            language,
+            en="Fix the JSON payload in the prepared file, then rerun with --entry-file and --input-format json.",
+            zh_cn="请先修正 prepared file 里的 JSON payload，再用 --entry-file 和 --input-format json 重新执行。",
+        )
+    return _localized_text(
+        language,
+        en=(
+            "Fix the prepared entry content first, then rerun the helper with one valid input source. "
+            "Use --entry-json for direct JSON, or add --input-format json when stdin or --entry-file carries JSON."
+        ),
+        zh_cn=(
+            "请先修正 prepared entry 内容，再用一个有效输入源重新执行 helper。"
+            "直接传 JSON 时使用 --entry-json；如果 JSON 走 stdin 或 --entry-file，请补上 --input-format json。"
+        ),
+    )
+
+
+def _invalid_prepared_input_recovery_action(
+    script_name: str | None,
+    details: dict | None,
+) -> str | None:
+    helper_name = _normalize_script_name(script_name) or "append_daily_log_entry.py"
+    input_mode = _prepared_input_mode(details)
+    if input_mode == "json-string":
+        return f"Re-run {helper_name} with --entry-json and a valid daily-log JSON object."
+    if input_mode == "json-stdin":
+        return f"Fix the JSON payload on stdin, then re-run {helper_name} with --stdin --input-format json."
+    if input_mode == "json-file":
+        entry_path = details.get("entry_path") if details else None
+        entry_arg = _quote_or_placeholder(
+            entry_path if isinstance(entry_path, str) else None,
+            "entry.json",
+        )
+        return (
+            f"Fix the JSON payload in the prepared file, then re-run {helper_name} "
+            f"with --entry-file {entry_arg} --input-format json."
+        )
+    return None
+
+
+def _infer_project_root(details: dict | None) -> str | None:
+    def _candidate_project_root(raw_value: str) -> str | None:
+        candidate = Path(raw_value)
+        if candidate.parent.name == "daily_logs" and candidate.parent.parent.name in _KNOWN_STORAGE_ROOT_NAMES:
+            return str(candidate.parent.parent.parent)
+        if candidate.parent.name in _KNOWN_STORAGE_ROOT_NAMES:
+            return str(candidate.parent.parent)
+        return None
+
+    if not details:
+        return None
+    project_root = details.get("project_root")
+    if isinstance(project_root, str) and project_root.strip():
+        return project_root
+    lock_path = details.get("lock_path")
+    if isinstance(lock_path, str) and lock_path.strip():
+        lock_candidate = Path(lock_path)
+        if lock_candidate.name == ".recallloom-write.lock":
+            return str(lock_candidate.parent)
+    for key in ("target_path", "path", "latest_active_daily_log"):
+        raw_value = details.get(key)
+        if not isinstance(raw_value, str) or not raw_value.strip():
+            continue
+        inferred_root = _candidate_project_root(raw_value)
+        if inferred_root is not None:
+            return inferred_root
+    for key in (
+        "bridge_targets",
+        "existing_targets",
+        "invalid_paths",
+        "malformed_bridge_targets",
+        "missing_paths",
+        "unknown_assets",
+    ):
+        raw_values = details.get(key)
+        if not isinstance(raw_values, list):
+            continue
+        for raw_value in raw_values:
+            if not isinstance(raw_value, str) or not raw_value.strip():
+                continue
+            inferred_root = _candidate_project_root(raw_value)
+            if inferred_root is not None:
+                return inferred_root
+    return None
+
+
+def _public_failure_details(details: dict | None) -> dict | None:
+    if not details:
+        return None
+    project_root = _infer_project_root(details) or details.get("project_root")
+    publicized = publicize_json_value(
+        details,
+        project_root=project_root,
+        private=private_json_paths_enabled(),
+    )
+    return publicized if isinstance(publicized, dict) and publicized else None
+
+
+def _public_failure_error(error: str | None, details: dict | None) -> str | None:
+    if not isinstance(error, str) or not error:
+        return error
+    project_root = _infer_project_root(details) or (details or {}).get("project_root")
+    return publicize_text_paths(
+        error,
+        project_root=project_root,
+        private=private_json_paths_enabled(),
+    )
+
+
+def _python_runtime_stage(error: str | None) -> str:
+    lowered = (error or "").casefold()
+    bootstrap_markers = (
+        "runtime bootstrap failed",
+        "contract registry bootstrap failed",
+        "missing package metadata file",
+        "malformed package metadata file",
+        "managed assets file",
+        "failure-contract registry is invalid",
+    )
+    if any(marker in lowered for marker in bootstrap_markers):
+        return "runtime_bootstrap"
+    return "runtime_gate"
+
+
+def _failure_stage(reason: str, error: str | None) -> str:
+    if reason == "python_runtime_unavailable":
+        return _python_runtime_stage(error)
+    if reason == "package_support_blocked":
+        return "package_support_gate"
+    return "helper_execution"
+
+
+def _failure_user_message(reason: str, *, language: str, error: str | None) -> str:
+    if reason == "python_runtime_unavailable" and _python_runtime_stage(error) == "runtime_bootstrap":
+        return _localized_text(
+            language,
+            en="RecallLoom cannot start because helper runtime bootstrap failed before execution could begin.",
+            zh_cn="RecallLoom 当前无法启动，因为 helper 在真正执行前就遇到了 runtime bootstrap 失败。",
+        )
+    return failure_reason_contract(reason)["user_message"][language]
+
+
+def _failure_operator_note(reason: str, *, language: str, error: str | None) -> str | None:
+    contract = failure_reason_contract(reason)
+    if reason == "python_runtime_unavailable" and _python_runtime_stage(error) == "runtime_bootstrap":
+        return _localized_text(
+            language,
+            en="Repair the RecallLoom bootstrap inputs such as package metadata, managed assets, or contract registry files before retrying.",
+            zh_cn="请先修复 RecallLoom 的 bootstrap 输入，例如 package metadata、managed assets 或 contract registry 文件，再重试。",
+        )
+    operator_note = contract.get("operator_note")
+    if operator_note:
+        return operator_note[language]
+    return None
+
+
+def _failure_suggestion(
+    reason: str,
+    *,
+    language: str,
+    error: str | None,
+    details: dict | None,
+) -> str:
+    if reason == "stale_write_context":
+        current_revision = details.get("current_workspace_revision") if details else None
+        if isinstance(current_revision, int):
+            return _localized_text(
+                language,
+                en=(
+                    f"Refresh the write context first. Re-run preflight, pick up workspace revision "
+                    f"{current_revision}, then retry the write."
+                ),
+                zh_cn=(
+                    f"先刷新写入上下文。重新执行 preflight，读取最新的 workspace revision "
+                    f"{current_revision}，再重试写入。"
+                ),
+            )
+        return _localized_text(
+            language,
+            en="Refresh the write context first. Re-run preflight and retry with a fresh workspace revision.",
+            zh_cn="先刷新写入上下文。重新执行 preflight，并使用最新的 workspace revision 重试。",
+        )
+    if reason == "historical_append_requires_confirmation":
+        target_date = details.get("target_date") if details else None
+        if isinstance(target_date, str) and target_date:
+            return _localized_text(
+                language,
+                en=(
+                    f"Only use --allow-historical if you really intend to backfill {target_date}; "
+                    "otherwise switch to the latest active daily log before appending."
+                ),
+                zh_cn=(
+                    f"只有在你确实要回填 {target_date} 时才使用 --allow-historical；"
+                    "否则请改为向当前最新的 daily log 追加。"
+                ),
+            )
+        return _localized_text(
+            language,
+            en="Only use --allow-historical when the backfill is intentional; otherwise append to the latest active daily log.",
+            zh_cn="只有在确实需要回填历史日志时才使用 --allow-historical；否则请追加到最新的 daily log。",
+        )
+    if reason == "project_time_policy_review_required":
+        logical_workday = details.get("logical_workday") if details else None
+        if isinstance(logical_workday, str) and logical_workday:
+            return _localized_text(
+                language,
+                en=(
+                    f"Review the project's date policy before writing. The current logical workday is "
+                    f"{logical_workday}; confirm that date or choose another explicitly."
+                ),
+                zh_cn=(
+                    f"写入前请先复核项目日期策略。当前逻辑工作日是 {logical_workday}；"
+                    "确认这个日期，或显式选择另一个日期后再继续。"
+                ),
+            )
+        return _localized_text(
+            language,
+            en="Review update_protocol.md and confirm the intended date before writing again.",
+            zh_cn="请先检查 update_protocol.md，并确认目标日期后再继续写入。",
+        )
+    if reason == "invalid_prepared_input":
+        return _invalid_prepared_input_suggestion(language, details)
+    if reason == "malformed_managed_file":
+        return _localized_text(
+            language,
+            en="Repair the malformed managed file before writing again; do not append on top of a damaged marker layout.",
+            zh_cn="请先修复损坏的 managed 文件，再重新写入；不要在损坏的 marker 结构上继续追加。",
+        )
+    if reason == "write_lock_busy":
+        return _localized_text(
+            language,
+            en="Let the active writer finish, or inspect the lock and only clear it when you are sure it is stale.",
+            zh_cn="请等待当前写入完成，或者先检查锁状态；只有确认它已经过期时才清理。",
+        )
+    if reason == "python_runtime_unavailable":
+        if _python_runtime_stage(error) == "runtime_bootstrap":
+            return _localized_text(
+                language,
+                en="This failed before helper execution. Repair the RecallLoom bootstrap/runtime files first, then rerun the helper.",
+                zh_cn="这次失败发生在 helper 真正执行之前。请先修复 RecallLoom 的 bootstrap/runtime 文件，再重新运行 helper。",
+            )
+        return _localized_text(
+            language,
+            en="Run the helper with a compatible Python 3.10+ interpreter before retrying any RecallLoom action.",
+            zh_cn="请先用兼容的 Python 3.10+ 解释器运行这个 helper，再重试 RecallLoom 动作。",
+        )
+    contract = failure_reason_contract(reason)
+    operator_note = contract.get("operator_note")
+    if operator_note:
+        return operator_note[language]
+    return contract["user_message"][language]
+
+
+def _failure_recovery_command(
+    reason: str,
+    *,
+    script_name: str | None,
+    error: str | None,
+    details: dict | None,
+) -> str:
+    project_root = _infer_project_root(details)
+    project_arg = _quote_or_placeholder(project_root, "<project-path>")
+    target_date = details.get("target_date") if details else None
+    logical_workday = details.get("logical_workday") if details else None
+    current_revision = details.get("current_workspace_revision") if details else None
+    entry_source_args = _append_input_source_args(details)
+    can_retry_append = (
+        isinstance(project_root, str)
+        and isinstance(current_revision, int)
+        and entry_source_args is not None
+    )
+
+    def _append_retry_command(*, date_value: str, allow_historical: bool = False) -> str | None:
+        if not can_retry_append:
+            return None
+        command_args = [
+            project_arg,
+            "--date",
+            date_value,
+            *entry_source_args,
+            "--expected-workspace-revision",
+            str(current_revision),
+        ]
+        if allow_historical:
+            command_args.append("--allow-historical")
+        command_args.append("--json")
+        return _script_command("append_daily_log_entry.py", *command_args)
+
+    if reason == "python_runtime_unavailable":
+        if _python_runtime_stage(error) == "runtime_bootstrap":
+            return (
+                "Repair skills/recallloom/package-metadata.json, "
+                "skills/recallloom/managed-assets.json, or the contract registry bootstrap inputs, "
+                "then rerun the helper with Python 3.10+."
+            )
+        return _script_command(script_name, "...")
+    if reason in {"not_project_root", "no_project_root", "invalid_storage_boundary"}:
+        return _script_command("init_context.py", project_arg, "--json")
+    if reason in {"damaged_sidecar", "dual_sidecar_conflict", "malformed_managed_file"}:
+        if isinstance(project_root, str):
+            return _script_command("validate_context.py", project_arg, "--json")
+        return "Repair the managed RecallLoom files, then rerun validate_context.py from the project root."
+    if reason == "attach_scan_blocked":
+        return "Edit the prepared text to remove blocked content, then rerun the same helper command."
+    if reason == "invalid_date":
+        return _script_command(script_name, project_arg, "--date", "YYYY-MM-DD", "--json")
+    if reason == "invalid_tool_name":
+        return _script_command(script_name, project_arg, "--writer-id", "RecallLoom", "--json")
+    if reason == "reinit_create_daily_log_not_allowed":
+        if isinstance(target_date, str) and target_date:
+            command = _append_retry_command(date_value=target_date)
+            if command is not None:
+                return command
+        return "Create new milestone content with append_daily_log_entry.py using --entry-file or --stdin instead of --create-daily-log."
+    if reason == "stale_write_context":
+        if isinstance(project_root, str):
+            return _script_command("preflight_context_check.py", project_arg, "--json")
+        return "Rerun preflight_context_check.py from the project root, then retry with the fresh workspace revision."
+    if reason == "write_lock_busy":
+        if isinstance(project_root, str):
+            return _script_command("unlock_write_lock.py", project_arg, "--json")
+        return "Wait for the active writer to finish, then rerun the helper after the lock clears."
+    if reason == "invalid_prepared_input":
+        retry_date = target_date if isinstance(target_date, str) and target_date else None
+        if retry_date is not None:
+            command = _append_retry_command(date_value=retry_date)
+            if command is not None:
+                return command
+        source_action = _invalid_prepared_input_recovery_action(script_name, details)
+        if source_action is not None:
+            return source_action
+        return (
+            "Provide exactly one prepared entry source with --entry-json, --entry-file, or --stdin; "
+            "use --input-format json for JSON file/stdin input, then rerun append_daily_log_entry.py "
+            "from the project root with the current workspace revision."
+        )
+    if reason == "historical_append_requires_confirmation":
+        append_date = target_date if isinstance(target_date, str) and target_date else None
+        if append_date is not None:
+            command = _append_retry_command(date_value=append_date, allow_historical=True)
+            if command is not None:
+                return command
+        return "Use --allow-historical only for an intentional backfill, then rerun append_daily_log_entry.py from the project root."
+    if reason == "project_time_policy_review_required":
+        append_date = logical_workday if isinstance(logical_workday, str) and logical_workday else None
+        if append_date is not None:
+            command = _append_retry_command(date_value=append_date)
+            if command is not None:
+                return command
+        return "Review the project date policy, then rerun append_daily_log_entry.py from the project root with the confirmed date."
+    if reason == "trust_review_required":
+        if isinstance(project_root, str):
+            return _script_command("preflight_context_check.py", project_arg, "--json")
+        return "Review the current continuity files, then rerun preflight_context_check.py."
+    if reason == "continuity_drift_review_required":
+        if isinstance(project_root, str):
+            return _script_command("summarize_continuity_status.py", project_arg, "--json")
+        return "Refresh the rolling summary, then rerun summarize_continuity_status.py."
+    if reason == "storage_cleanup_incomplete":
+        return "Delete the tombstone storage directory, confirm cleanup, then rerun the original removal command."
+    if reason == "registry_contract_invalid":
+        return "Repair the failure-contract registry definition, then rerun the helper bootstrap."
+    if reason == "package_support_blocked":
+        return "Run npx skills update, refresh the installed recallloom package, then rerun the helper."
+    return "Review the error details, fix the blocking issue, and rerun the same helper command."
+
 
 def preferred_failure_language(env: dict[str, str] | None = None) -> str:
     env = env or os.environ
@@ -354,28 +823,77 @@ def failure_payload(
     details: dict | None = None,
     findings: list | None = None,
     extra: dict | None = None,
+    script_name: str | None = None,
 ) -> dict:
     normalized_reason = normalize_failure_reason(reason)
     contract = failure_reason_contract(normalized_reason)
+    normalized_script_name = _normalize_script_name(script_name)
+    normalized_details = _public_failure_details(details)
+    normalized_error = _public_failure_error(error, details)
     payload = {
         "ok": False,
+        "schema_version": FAILURE_PAYLOAD_SCHEMA_VERSION,
         "blocked": contract["blocked"],
         "blocked_reason": normalized_reason,
         "recoverability": contract["recoverability"],
         "surface_level": contract["surface_level"],
         "trust_effect": contract["trust_effect"],
+        "failure_stage": _failure_stage(normalized_reason, error),
         "next_actions": list(contract["next_actions"]),
-        "user_message": contract["user_message"][language],
+        "user_message": _failure_user_message(
+            normalized_reason,
+            language=language,
+            error=error,
+        ),
+        "suggestion": _failure_suggestion(
+            normalized_reason,
+            language=language,
+            error=error,
+            details=normalized_details,
+        ),
+        "recovery_command": _failure_recovery_command(
+            normalized_reason,
+            script_name=normalized_script_name,
+            error=error,
+            details=normalized_details,
+        ),
     }
-    if error is not None:
-        payload["error"] = error
-    operator_note = contract.get("operator_note")
+    if normalized_error is not None:
+        payload["error"] = normalized_error
+    operator_note = _failure_operator_note(
+        normalized_reason,
+        language=language,
+        error=error,
+    )
     if operator_note:
-        payload["operator_note"] = operator_note[language]
-    if details:
-        payload["details"] = details
+        payload["operator_note"] = operator_note
+    if normalized_details:
+        payload["details"] = normalized_details
     if findings:
         payload["findings"] = findings
     if extra:
         payload.update(extra)
-    return payload
+    if not payload.get("schema_version"):
+        payload["schema_version"] = FAILURE_PAYLOAD_SCHEMA_VERSION
+    if not payload.get("next_actions"):
+        payload["next_actions"] = list(contract["next_actions"])
+    if not payload.get("suggestion"):
+        payload["suggestion"] = _failure_suggestion(
+            normalized_reason,
+            language=language,
+            error=error,
+            details=normalized_details,
+        )
+    if not payload.get("recovery_command"):
+        payload["recovery_command"] = _failure_recovery_command(
+            normalized_reason,
+            script_name=normalized_script_name,
+            error=error,
+            details=normalized_details,
+        )
+    publicized_payload = publicize_json_value(
+        payload,
+        project_root=_infer_project_root(details) or (details or {}).get("project_root"),
+        private=private_json_paths_enabled(),
+    )
+    return publicized_payload if isinstance(publicized_payload, dict) else payload

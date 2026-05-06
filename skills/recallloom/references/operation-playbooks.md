@@ -3,6 +3,7 @@
 ## Contents
 
 - Project-Local Overrides
+- Write Protocol Red Lines
 - Cold Start
 - Choose the Write Set
 - Layered Write Judgment
@@ -33,6 +34,13 @@ That means:
 - preflight, archive guidance, and bridge guidance should surface it clearly
 - helper scripts should not silently ignore that it exists
 - helper scripts do not automatically parse or execute its natural-language rules
+
+## Write Protocol Red Lines
+
+- For managed sidecar writes, use the concrete helper scripts. Do not bypass them with blind file replacement, blind patching, or by hand-building sidecar files.
+- If a helper write fails, follow this order: diagnose the failure, fix the cause, retry the helper, then surface or return the helper's blocked failure contract if the helper still cannot complete.
+- Never hand-edit `STORAGE_ROOT/state.json` or `STORAGE_ROOT/config.json`. This includes `.recallloom/state.json` and `.recallloom/config.json`.
+- For overwrite-style managed files, use revision-aware helper commits and do not use blind file replacement.
 
 ## Cold Start
 
@@ -216,7 +224,7 @@ If the day simply carried over and no milestone happened, the valid result can s
 1. update only `rolling_summary.md`
 2. or exit with `no_write`
 
-Always leave a clear next-step note when possible.
+End-of-day writes must leave a clear next-step note unless the valid result is `no_write` or `blocked`.
 
 ## Compression
 

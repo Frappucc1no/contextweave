@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime
+from pathlib import Path
 
 from core.continuity.freshness import (
     continuity_digest_bundle,
@@ -41,6 +42,8 @@ from _common import (
     extract_section_text,
     parse_daily_log_entry_line,
     parse_iso_date,
+    public_project_path,
+    public_project_root_label,
     read_text,
     StorageResolutionError,
 )
@@ -163,7 +166,11 @@ def main() -> None:
             json_mode=args.json,
             exit_code=1,
             message="No RecallLoom project root found.",
-            payload=cli_failure_payload("no_project_root"),
+            payload=cli_failure_payload(
+                "no_project_root",
+                error="No RecallLoom project root found.",
+                details={"project_root": str(Path(args.path).expanduser().resolve())},
+            ),
         )
 
     try:
@@ -416,27 +423,47 @@ def main() -> None:
         if append_date_review_required
         else workday_decision["suggested_date"]
     )
+    public_project_root = public_project_root_label(workspace.project_root)
+    public_storage_root = public_project_path(workspace.storage_root, project_root=workspace.project_root)
+    public_latest_daily_log = (
+        public_project_path(latest_daily_log, project_root=workspace.project_root)
+        if latest_daily_log is not None
+        else None
+    )
+    public_latest_workspace_artifact = (
+        public_project_path(latest_workspace_artifact, project_root=workspace.project_root)
+        if latest_workspace_artifact is not None
+        else None
+    )
     payload = {
-        "project_root": str(workspace.project_root),
-        "storage_root": str(workspace.storage_root),
+        "project_root": public_project_root,
+        "storage_root": public_storage_root,
         "storage_mode": workspace.storage_mode,
         "workspace_language": workspace.workspace_language,
-        "context_brief": str(context_brief_path) if context_brief_path.is_file() else None,
-        "state": str(state_path),
-        "update_protocol": str(update_protocol_path) if update_protocol_path.is_file() else None,
+        "context_brief": (
+            public_project_path(context_brief_path, project_root=workspace.project_root)
+            if context_brief_path.is_file()
+            else None
+        ),
+        "state": public_project_path(state_path, project_root=workspace.project_root),
+        "update_protocol": (
+            public_project_path(update_protocol_path, project_root=workspace.project_root)
+            if update_protocol_path.is_file()
+            else None
+        ),
         "workspace_revision": state["workspace_revision"],
         "update_protocol_revision": state["update_protocol_revision"],
-        "rolling_summary": str(summary_path),
+        "rolling_summary": public_project_path(summary_path, project_root=workspace.project_root),
         "rolling_summary_revision": summary_state.revision if summary_state else None,
         "context_brief_revision": context_brief_state.revision if context_brief_state else None,
         "update_protocol_file_revision": update_protocol_state.revision if update_protocol_state else None,
-        "latest_daily_log": str(latest_daily_log) if latest_daily_log else None,
+        "latest_daily_log": public_latest_daily_log,
         "latest_daily_log_entry_id": latest_daily_log_entry.entry_id if latest_daily_log_entry else None,
         "latest_daily_log_entry_seq": latest_daily_log_entry.entry_seq if latest_daily_log_entry else None,
         "daily_log_selection_rule": "latest_active_daily_log",
         "workspace_artifact_scan_mode": workspace_artifact_scan_mode,
         "workspace_artifact_scan_performed": workspace_artifact_scan_performed,
-        "latest_workspace_artifact": str(latest_workspace_artifact) if latest_workspace_artifact else None,
+        "latest_workspace_artifact": public_latest_workspace_artifact,
         "workspace_artifact_newer_than_summary": workspace_artifact_is_newer,
         "summary_revision_stale": summary_revision_is_stale,
         "summary_stale": summary_stale,
@@ -455,13 +482,13 @@ def main() -> None:
         "suggested_handoff_sections": digests["suggested_handoff_sections"],
         "recommended_actions": recommended_actions,
         "continuity_snapshot": {
-            "project_root": str(workspace.project_root),
-            "storage_root": str(workspace.storage_root),
+            "project_root": public_project_root,
+            "storage_root": public_storage_root,
             "workspace_revision_seen": state["workspace_revision"],
             "rolling_summary_revision_seen": summary_state.revision if summary_state else None,
             "context_brief_revision_seen": context_brief_state.revision if context_brief_state else None,
             "update_protocol_revision_seen": update_protocol_state.revision if update_protocol_state else None,
-            "latest_active_daily_log_seen": str(latest_daily_log) if latest_daily_log else None,
+            "latest_active_daily_log_seen": public_latest_daily_log,
             "latest_active_daily_log_entry_seq_seen": (
                 latest_daily_log_entry.entry_seq if latest_daily_log_entry else None
             ),

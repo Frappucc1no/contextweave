@@ -26,6 +26,7 @@ from _common import (
     StorageResolutionError,
     ensure_supported_python_version,
     find_recallloom_root,
+    public_json_payload,
     remove_git_exclude_block,
     unknown_storage_assets,
     validate_storage_mode,
@@ -322,7 +323,13 @@ def main() -> None:
         )
 
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                public_json_payload(payload, project_root=workspace.project_root),
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
     else:
         if args.yes:
             if removed_storage:

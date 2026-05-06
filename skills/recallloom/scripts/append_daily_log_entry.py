@@ -14,12 +14,14 @@ import time
 
 from core.continuity.workday import logical_workday_for
 from core.failure.contracts import failure_payload, preferred_failure_language
+from core.output.privacy import publicize_json_value
 from core.protocol.contracts import FILE_KEYS, SECTION_KEYS
 from core.protocol.markers import (
     daily_log_entry_marker,
     file_marker,
     parse_daily_log_scaffold_marker,
     parse_file_marker,
+    section_marker,
 )
 from core.protocol.sections import (
     duplicate_section_keys,
@@ -40,6 +42,7 @@ from _common import (
     LockBusyError,
     StorageResolutionError,
     dump_json,
+    detect_update_protocol_time_policy_cues,
     enforce_package_support_gate,
     ensure_supported_python_version,
     exit_with_cli_error,
@@ -86,7 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Safely append a milestone entry to a RecallLoom daily log."
     )
     parser.add_argument("path", nargs="?", default=".", help="Project path or a descendant path.")
-    parser.add_argument("--date", required=True, help="Daily log date in YYYY-MM-DD.")
+    parser.add_argument("--date", help="Daily log date in YYYY-MM-DD.")
     parser.add_argument(
         "--allow-historical",
         action="store_true",
@@ -95,11 +98,21 @@ def build_parser() -> argparse.ArgumentParser:
             "Without this flag, appends to older daily logs are rejected."
         ),
     )
-    parser.add_argument("--entry-file", help="Path to prepared entry markdown content.")
+    parser.add_argument("--entry-file", help="Path to prepared entry content.")
+    parser.add_argument("--entry-json", help="Prepared entry JSON object as a string.")
     parser.add_argument(
         "--stdin",
         action="store_true",
-        help="Read prepared entry markdown content from UTF-8 stdin instead of a file.",
+        help="Read prepared entry content from UTF-8 stdin instead of a file.",
+    )
+    parser.add_argument(
+        "--input-format",
+        choices=("auto", "markdown", "json"),
+        default="auto",
+        help=(
+            "Interpret prepared entry input as markdown or JSON. "
+            "auto treats --entry-json as JSON and other sources as markdown."
+        ),
     )
     parser.add_argument(
         "--max-input-bytes",
@@ -107,7 +120,15 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAX_INPUT_BYTES,
         help="Maximum prepared-entry input size in bytes. Defaults to 4 MiB.",
     )
-    parser.add_argument("--expected-workspace-revision", type=int, required=True)
+    parser.add_argument("--expected-workspace-revision", type=int)
+    parser.add_argument(
+        "--no-auto-detect",
+        action="store_true",
+        help=(
+            "Require explicit --date and --expected-workspace-revision instead of auto-detecting "
+            "missing values from the locked workspace state."
+        ),
+    )
     parser.add_argument("--writer-id", default=DISPLAY_NAME)
     parser.add_argument("--json", action="store_true", help="Print structured JSON output.")
     return parser
@@ -215,30 +236,35 @@ def read_limited_stdin(parser, *, json_mode: bool, max_input_bytes: int) -> byte
     return b"".join(chunks)
 
 
-def load_entry_text(
+def load_entry_source(
     parser,
     *,
     json_mode: bool,
+    entry_json: str | None,
     entry_file: str | None,
     use_stdin: bool,
     max_input_bytes: int,
-) -> tuple[str, str]:
-    if bool(entry_file) == bool(use_stdin):
-        if entry_file and use_stdin:
+) -> tuple[str, str, Path | None]:
+    selected_sources = int(entry_json is not None) + int(entry_file is not None) + int(use_stdin)
+    if selected_sources != 1:
+        if selected_sources > 1:
             exit_with_failure_contract(
                 parser,
                 json_mode=json_mode,
                 exit_code=2,
-                message="Use exactly one prepared-entry input: --entry-file or --stdin.",
+                message="Use exactly one prepared-entry input: --entry-json, --entry-file, or --stdin.",
                 reason="invalid_prepared_input",
             )
         exit_with_failure_contract(
             parser,
             json_mode=json_mode,
             exit_code=2,
-            message="Provide prepared entry content with --entry-file or --stdin.",
+            message="Provide prepared entry content with exactly one of --entry-json, --entry-file, or --stdin.",
             reason="invalid_prepared_input",
         )
+
+    if entry_json is not None:
+        return entry_json, "entry-json", None
 
     if entry_file:
         entry_path = Path(entry_file).expanduser().resolve()
@@ -259,6 +285,7 @@ def load_entry_text(
                 max_input_bytes=max_input_bytes,
             ),
             "file",
+            entry_path,
         )
 
     if sys.stdin.isatty():
@@ -279,7 +306,7 @@ def load_entry_text(
             reason="invalid_prepared_input",
         )
     try:
-        return raw.decode("utf-8"), "stdin"
+        return raw.decode("utf-8"), "stdin", None
     except UnicodeDecodeError:
         exit_with_failure_contract(
             parser,
@@ -289,6 +316,239 @@ def load_entry_text(
             reason="invalid_prepared_input",
         )
     raise AssertionError("unreachable")
+
+
+def invalid_json_section_value(
+    parser,
+    *,
+    json_mode: bool,
+    section_key: str,
+    message: str,
+    recovery_details: dict | None = None,
+) -> None:
+    details = dict(recovery_details or {})
+    details["section_key"] = section_key
+    exit_with_failure_contract(
+        parser,
+        json_mode=json_mode,
+        exit_code=2,
+        message=message,
+        reason="invalid_prepared_input",
+        details=details,
+    )
+
+
+def render_json_list_item(text: str) -> str:
+    lines = text.splitlines()
+    if not lines:
+        return "- "
+    rendered = [f"- {lines[0]}"]
+    rendered.extend(f"  {line}" if line else "  " for line in lines[1:])
+    return "\n".join(rendered)
+
+
+def normalize_json_section_value(
+    parser,
+    *,
+    json_mode: bool,
+    section_key: str,
+    value: object,
+    recovery_details: dict | None = None,
+) -> str:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+        invalid_json_section_value(
+            parser,
+            json_mode=json_mode,
+            section_key=section_key,
+            message=(
+                f"Prepared entry JSON section '{section_key}' must be a non-empty string "
+                "or a non-empty list of strings."
+            ),
+            recovery_details=recovery_details,
+        )
+
+    if isinstance(value, list):
+        if not value:
+            invalid_json_section_value(
+                parser,
+                json_mode=json_mode,
+                section_key=section_key,
+                message=(
+                    f"Prepared entry JSON section '{section_key}' must be a non-empty string "
+                    "or a non-empty list of strings."
+                ),
+                recovery_details=recovery_details,
+            )
+        rendered_items: list[str] = []
+        for item in value:
+            if not isinstance(item, str):
+                invalid_json_section_value(
+                    parser,
+                    json_mode=json_mode,
+                    section_key=section_key,
+                    message=(
+                        f"Prepared entry JSON section '{section_key}' list items must be non-empty strings."
+                    ),
+                    recovery_details=recovery_details,
+                )
+            normalized_item = item.strip()
+            if not normalized_item:
+                invalid_json_section_value(
+                    parser,
+                    json_mode=json_mode,
+                    section_key=section_key,
+                    message=(
+                        f"Prepared entry JSON section '{section_key}' list items must be non-empty strings."
+                    ),
+                    recovery_details=recovery_details,
+                )
+            rendered_items.append(render_json_list_item(normalized_item))
+        return "\n".join(rendered_items)
+
+    invalid_json_section_value(
+        parser,
+        json_mode=json_mode,
+        section_key=section_key,
+        message=(
+            f"Prepared entry JSON section '{section_key}' must be a non-empty string "
+            "or a non-empty list of strings."
+        ),
+        recovery_details=recovery_details,
+    )
+    raise AssertionError("unreachable")
+
+
+def normalize_json_entry_text(
+    parser,
+    *,
+    json_mode: bool,
+    raw_text: str,
+    recovery_details: dict | None = None,
+) -> str:
+    try:
+        payload = json.loads(raw_text)
+    except json.JSONDecodeError as exc:
+        exit_with_failure_contract(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=(
+                "Prepared entry JSON must be a valid JSON object: "
+                f"{exc.msg} at line {exc.lineno} column {exc.colno}."
+            ),
+            reason="invalid_prepared_input",
+            details=recovery_details,
+        )
+
+    if not isinstance(payload, dict):
+        exit_with_failure_contract(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message="Prepared entry JSON must be an object keyed by daily-log section names.",
+            reason="invalid_prepared_input",
+            details=recovery_details,
+        )
+
+    required_keys = list(SECTION_KEYS["daily_log"])
+    unknown_keys = sorted(key for key in payload if key not in required_keys)
+    if unknown_keys:
+        details = dict(recovery_details or {})
+        details["unknown_section_keys"] = unknown_keys
+        exit_with_failure_contract(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=(
+                "Prepared entry JSON contains unknown daily-log section keys: "
+                + ", ".join(unknown_keys)
+            ),
+            reason="invalid_prepared_input",
+            details=details,
+        )
+
+    missing_keys = [key for key in required_keys if key not in payload]
+    if missing_keys:
+        details = dict(recovery_details or {})
+        details["missing_section_keys"] = missing_keys
+        exit_with_failure_contract(
+            parser,
+            json_mode=json_mode,
+            exit_code=2,
+            message=(
+                "Prepared entry JSON is missing required daily-log section keys: "
+                + ", ".join(missing_keys)
+            ),
+            reason="invalid_prepared_input",
+            details=details,
+        )
+
+    sections: list[str] = []
+    for section_key in required_keys:
+        sections.append(
+            section_marker(section_key)
+            + "\n"
+            + normalize_json_section_value(
+                parser,
+                json_mode=json_mode,
+                section_key=section_key,
+                value=payload[section_key],
+                recovery_details=recovery_details,
+            )
+        )
+    return "\n\n".join(sections) + "\n"
+
+
+def prepare_entry_text(
+    parser,
+    *,
+    json_mode: bool,
+    source_kind: str,
+    raw_text: str,
+    input_format: str,
+    entry_path: Path | None,
+) -> tuple[str, str]:
+    if source_kind == "entry-json":
+        recovery_details = {"input_mode": "json-string"}
+        if input_format == "markdown":
+            exit_with_failure_contract(
+                parser,
+                json_mode=json_mode,
+                exit_code=2,
+                message="--entry-json only supports JSON input. Use --input-format auto or --input-format json.",
+                reason="invalid_prepared_input",
+                details=recovery_details,
+            )
+        return (
+            normalize_json_entry_text(
+                parser,
+                json_mode=json_mode,
+                raw_text=raw_text,
+                recovery_details=recovery_details,
+            ),
+            "json-string",
+        )
+
+    effective_input_format = "markdown" if input_format == "auto" else input_format
+    if effective_input_format == "json":
+        input_mode = "json-file" if source_kind == "file" else "json-stdin"
+        recovery_details: dict[str, object] = {"input_mode": input_mode}
+        if entry_path is not None:
+            recovery_details["entry_path"] = str(entry_path)
+        return (
+            normalize_json_entry_text(
+                parser,
+                json_mode=json_mode,
+                raw_text=raw_text,
+                recovery_details=recovery_details,
+            ),
+            input_mode,
+        )
+
+    return raw_text, source_kind
 
 
 def build_entry_block(body_text: str, *, writer_id: str, entry_seq: int) -> str:
@@ -320,7 +580,13 @@ def reserved_marker_lines(text: str) -> list[tuple[int, str]]:
     return results
 
 
-def validate_entry_body(parser, *, json_mode: bool, body_text: str) -> None:
+def validate_entry_body(
+    parser,
+    *,
+    json_mode: bool,
+    body_text: str,
+    recovery_details: dict | None = None,
+) -> None:
     reserved = reserved_marker_lines(body_text)
     if reserved:
         line_number, marker = reserved[0]
@@ -339,6 +605,7 @@ def validate_entry_body(parser, *, json_mode: bool, body_text: str) -> None:
                     "Refusing to append because the prepared entry contains a reserved RecallLoom marker "
                     f"on line {line_number}: {marker}"
                 ),
+                details=recovery_details,
             ),
         )
     attach_scan = scan_auto_attached_context_text(body_text)
@@ -358,9 +625,50 @@ def validate_entry_body(parser, *, json_mode: bool, body_text: str) -> None:
                     "Refusing to append because the prepared entry failed the attached-text safety scan: "
                     + ", ".join(attach_scan["hard_block_reasons"])
                 ),
-                details={"hard_block_reasons": attach_scan["hard_block_reasons"]},
+                details={
+                    **(recovery_details or {}),
+                    "hard_block_reasons": attach_scan["hard_block_reasons"],
+                },
             ),
         )
+
+
+def build_append_failure_details(
+    *,
+    project_root: Path,
+    target_path: Path,
+    target_date: str,
+    current_workspace_revision: int,
+    entry_path: Path | None,
+    input_mode: str,
+    extra: dict | None = None,
+) -> dict:
+    details: dict[str, object] = {
+        "project_root": str(project_root),
+        "target_path": str(target_path),
+        "target_date": target_date,
+        "current_workspace_revision": current_workspace_revision,
+        "input_mode": input_mode,
+    }
+    if entry_path is not None:
+        details["entry_path"] = str(entry_path)
+    if extra:
+        details.update(extra)
+    return details
+
+
+def resolve_target_date(
+    *,
+    explicit_date: str | None,
+    latest_existing: Path | None,
+    logical_workday: date,
+) -> tuple[date, date | None, str]:
+    latest_existing_date = parse_iso_date(latest_existing.stem) if latest_existing is not None else None
+    if explicit_date is not None:
+        return parse_iso_date(explicit_date), latest_existing_date, "explicit"
+    if latest_existing_date is not None and latest_existing_date == logical_workday:
+        return latest_existing_date, latest_existing_date, "auto_same_day_active"
+    return logical_workday, latest_existing_date, "auto_logical_workday"
 
 
 def exit_with_append_date_guard(
@@ -395,14 +703,26 @@ def enforce_logical_workday_append_guards(
     target_path: Path,
     target_date: date,
     latest_existing: Path | None,
+    logical_workday: date | None = None,
+    recovery_details: dict | None = None,
 ) -> date | None:
-    logical_workday = logical_workday_for(
-        datetime.now().astimezone(),
-        DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR,
-    )
+    if logical_workday is None:
+        logical_workday = logical_workday_for(
+            datetime.now().astimezone(),
+            DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR,
+        )
     logical_workday_iso = logical_workday.isoformat()
     latest_existing_date = parse_iso_date(latest_existing.stem) if latest_existing is not None else None
     latest_existing_text = str(latest_existing) if latest_existing is not None else None
+    base_details = dict(recovery_details or {})
+    base_details.update(
+        {
+            "target_path": str(target_path),
+            "target_date": target_date.isoformat(),
+            "logical_workday": logical_workday_iso,
+            "latest_active_daily_log": latest_existing_text,
+        }
+    )
 
     if target_date > logical_workday:
         message = (
@@ -418,15 +738,12 @@ def enforce_logical_workday_append_guards(
             exit_code=2,
             reason="project_time_policy_review_required",
             message=message,
-            details={
-                "target_path": str(target_path),
-                "target_date": target_date.isoformat(),
-                "logical_workday": logical_workday_iso,
-                "latest_active_daily_log": latest_existing_text,
-            },
+            details=base_details,
         )
 
     if latest_existing_date is not None and latest_existing_date > logical_workday:
+        details = dict(base_details)
+        details["latest_active_day"] = latest_existing_date.isoformat()
         message = (
             "Refusing to append because the latest active ISO-dated daily log "
             f"{latest_existing} is ahead of the current logical workday {logical_workday_iso}. "
@@ -441,13 +758,7 @@ def enforce_logical_workday_append_guards(
             exit_code=2,
             reason="project_time_policy_review_required",
             message=message,
-            details={
-                "target_path": str(target_path),
-                "target_date": target_date.isoformat(),
-                "logical_workday": logical_workday_iso,
-                "latest_active_daily_log": latest_existing_text,
-                "latest_active_day": latest_existing_date.isoformat(),
-            },
+            details=details,
         )
 
     return latest_existing_date
@@ -468,7 +779,7 @@ def main() -> None:
         )
     enforce_package_support_gate(parser, json_mode=args.json)
 
-    if not validate_iso_date(args.date):
+    if args.date is not None and not validate_iso_date(args.date):
         exit_with_failure_contract(
             parser,
             json_mode=args.json,
@@ -489,12 +800,21 @@ def main() -> None:
             details={"writer_id": args.writer_id},
         )
 
-    body_text, input_mode = load_entry_text(
+    raw_entry_text, source_kind, entry_path = load_entry_source(
         parser,
         json_mode=args.json,
+        entry_json=args.entry_json,
         entry_file=args.entry_file,
         use_stdin=args.stdin,
         max_input_bytes=args.max_input_bytes,
+    )
+    body_text, input_mode = prepare_entry_text(
+        parser,
+        json_mode=args.json,
+        source_kind=source_kind,
+        raw_text=raw_entry_text,
+        input_format=args.input_format,
+        entry_path=entry_path,
     )
 
     try:
@@ -515,13 +835,127 @@ def main() -> None:
             message="No RecallLoom project root found.",
             reason="no_project_root",
         )
+    if args.no_auto_detect and (
+        args.date is None or args.expected_workspace_revision is None
+    ):
+        missing_fields = []
+        if args.date is None:
+            missing_fields.append("date")
+        if args.expected_workspace_revision is None:
+            missing_fields.append("expected_workspace_revision")
+        exit_with_failure_contract(
+            parser,
+            json_mode=args.json,
+            exit_code=2,
+            message=(
+                "--no-auto-detect requires explicit --date and --expected-workspace-revision. "
+                f"Missing: {', '.join(missing_fields)}."
+            ),
+            reason="invalid_prepared_input",
+            details={
+                "project_root": str(workspace.project_root),
+                "input_mode": input_mode,
+                "missing_fields": missing_fields,
+                "no_auto_detect": True,
+            },
+        )
 
-    target_path = workspace.storage_root / DAILY_LOGS_DIRNAME / f"{args.date}.md"
     try:
         with workspace_write_lock(workspace.project_root, "append_daily_log_entry.py"):
             state_path = workspace.storage_root / FILE_KEYS["state"]
             state = load_workspace_state(state_path)
-            if state["workspace_revision"] != args.expected_workspace_revision:
+            logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
+            latest_existing = latest_active_daily_log(logs_dir)
+            logical_workday = logical_workday_for(
+                datetime.now().astimezone(),
+                DEFAULT_LOGICAL_WORKDAY_ROLLOVER_HOUR,
+            )
+            update_protocol_path = workspace.storage_root / FILE_KEYS["update_protocol"]
+            project_time_policy_cues = (
+                detect_update_protocol_time_policy_cues(read_text(update_protocol_path))
+                if update_protocol_path.is_file()
+                else []
+            )
+            if args.date is None and project_time_policy_cues:
+                suggested_target_path = workspace.storage_root / DAILY_LOGS_DIRNAME / f"{logical_workday.isoformat()}.md"
+                append_failure_details = build_append_failure_details(
+                    project_root=workspace.project_root,
+                    target_path=suggested_target_path,
+                    target_date=logical_workday.isoformat(),
+                    current_workspace_revision=state["workspace_revision"],
+                    entry_path=entry_path,
+                    input_mode=input_mode,
+                    extra={
+                        "auto_detected_date": True,
+                        "auto_detected_workspace_revision": args.expected_workspace_revision is None,
+                        "date_resolution_source": "project_local_review_required",
+                        "workspace_revision_source": (
+                            "state_current" if args.expected_workspace_revision is None else "explicit"
+                        ),
+                        "logical_workday": logical_workday.isoformat(),
+                        "latest_active_daily_log": str(latest_existing) if latest_existing is not None else None,
+                        "latest_active_day": latest_existing.stem if latest_existing is not None else None,
+                        "project_time_policy_cues": project_time_policy_cues,
+                    },
+                )
+                message = (
+                    "Project-local time-policy cues were detected in update_protocol.md. "
+                    "Append requires an explicit --date before writing when date auto-detect would otherwise apply."
+                )
+                exit_with_append_date_guard(
+                    parser,
+                    json_mode=args.json,
+                    workspace_language=workspace.workspace_language,
+                    exit_code=2,
+                    reason="project_time_policy_review_required",
+                    message=message,
+                    details=append_failure_details,
+                )
+            target_date, latest_existing_date, date_resolution_source = resolve_target_date(
+                explicit_date=args.date,
+                latest_existing=latest_existing,
+                logical_workday=logical_workday,
+            )
+            target_date_iso = target_date.isoformat()
+            target_path = workspace.storage_root / DAILY_LOGS_DIRNAME / f"{target_date_iso}.md"
+            resolved_workspace_revision = (
+                state["workspace_revision"]
+                if args.expected_workspace_revision is None
+                else args.expected_workspace_revision
+            )
+            workspace_revision_source = (
+                "state_current"
+                if args.expected_workspace_revision is None
+                else "explicit"
+            )
+            workspace_revision_guard_mode = (
+                "lock_snapshot_current"
+                if args.expected_workspace_revision is None
+                else "explicit_mismatch_check"
+            )
+            append_failure_details = build_append_failure_details(
+                project_root=workspace.project_root,
+                target_path=target_path,
+                target_date=target_date_iso,
+                current_workspace_revision=state["workspace_revision"],
+                entry_path=entry_path,
+                input_mode=input_mode,
+                extra={
+                    "auto_detected_date": args.date is None,
+                    "auto_detected_workspace_revision": args.expected_workspace_revision is None,
+                    "date_resolution_source": date_resolution_source,
+                    "workspace_revision_source": workspace_revision_source,
+                    "logical_workday": logical_workday.isoformat(),
+                    "latest_active_daily_log": str(latest_existing) if latest_existing is not None else None,
+                    "latest_active_day": (
+                        latest_existing_date.isoformat() if latest_existing_date is not None else None
+                    ),
+                },
+            )
+            if (
+                args.expected_workspace_revision is not None
+                and state["workspace_revision"] != args.expected_workspace_revision
+            ):
                 exit_with_cli_error(
                     parser,
                     json_mode=args.json,
@@ -539,14 +973,11 @@ def main() -> None:
                         ),
                         details={
                             "expected_workspace_revision": args.expected_workspace_revision,
-                            "current_workspace_revision": state["workspace_revision"],
+                            **append_failure_details,
                         },
                     ),
                 )
 
-            logs_dir = workspace.storage_root / DAILY_LOGS_DIRNAME
-            latest_existing = latest_active_daily_log(logs_dir)
-            target_date = parse_iso_date(args.date)
             latest_existing_date = enforce_logical_workday_append_guards(
                 parser,
                 json_mode=args.json,
@@ -554,6 +985,8 @@ def main() -> None:
                 target_path=target_path,
                 target_date=target_date,
                 latest_existing=latest_existing,
+                logical_workday=logical_workday,
+                recovery_details=append_failure_details,
             )
             if (
                 latest_existing_date is not None
@@ -578,14 +1011,19 @@ def main() -> None:
                             "Re-run with --allow-historical only when you intentionally need a historical append."
                         ),
                         details={
-                            "target_path": str(target_path),
+                            **append_failure_details,
                             "latest_active_daily_log": str(latest_existing),
                         },
                     ),
                 )
 
             missing_keys = missing_section_keys(body_text, SECTION_KEYS["daily_log"])
-            validate_entry_body(parser, json_mode=args.json, body_text=body_text)
+            validate_entry_body(
+                parser,
+                json_mode=args.json,
+                body_text=body_text,
+                recovery_details=append_failure_details,
+            )
             if missing_keys:
                 exit_with_failure_contract(
                     parser,
@@ -596,7 +1034,10 @@ def main() -> None:
                         "section markers: " + ", ".join(missing_keys)
                     ),
                     reason="invalid_prepared_input",
-                    details={"missing_section_keys": missing_keys},
+                    details={
+                        **append_failure_details,
+                        "missing_section_keys": missing_keys,
+                    },
                 )
             duplicate_keys = duplicate_section_keys(body_text)
             if duplicate_keys:
@@ -609,7 +1050,10 @@ def main() -> None:
                         "section markers: " + ", ".join(duplicate_keys)
                     ),
                     reason="invalid_prepared_input",
-                    details={"duplicate_section_keys": duplicate_keys},
+                    details={
+                        **append_failure_details,
+                        "duplicate_section_keys": duplicate_keys,
+                    },
                 )
             unknown_keys = unknown_section_keys(body_text, SECTION_KEYS["daily_log"])
             if unknown_keys:
@@ -622,7 +1066,10 @@ def main() -> None:
                         "section markers: " + ", ".join(unknown_keys)
                     ),
                     reason="invalid_prepared_input",
-                    details={"unknown_section_keys": unknown_keys},
+                    details={
+                        **append_failure_details,
+                        "unknown_section_keys": unknown_keys,
+                    },
                 )
             next_seq = 1
             target_existed = target_path.exists()
@@ -791,9 +1238,24 @@ def main() -> None:
         "allow_historical": args.allow_historical,
         "state_cursor_updated": target_is_latest_after_write,
         "writer_id": writer_id,
+        "auto_detect": {
+            "date_used": args.date is None,
+            "workspace_revision_used": args.expected_workspace_revision is None,
+            "logical_workday": logical_workday.isoformat(),
+            "latest_active_daily_log": str(latest_existing) if latest_existing is not None else None,
+            "latest_active_day": (
+                latest_existing_date.isoformat() if latest_existing_date is not None else None
+            ),
+            "resolved_date": target_date.isoformat(),
+            "resolved_workspace_revision": resolved_workspace_revision,
+            "date_resolution_source": date_resolution_source,
+            "workspace_revision_source": workspace_revision_source,
+            "workspace_revision_guard_mode": workspace_revision_guard_mode,
+        },
     }
     if args.json:
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        public_payload = publicize_json_value(payload, project_root=workspace.project_root)
+        print(json.dumps(public_payload, ensure_ascii=False, indent=2))
     else:
         print(f"Appended daily log entry to {target_path}")
 

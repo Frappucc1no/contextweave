@@ -62,15 +62,31 @@ def _bootstrap_runtime_contract(minimum_text: str) -> dict:
 def _bootstrap_runtime_payload(message: str, minimum_text: str) -> dict:
     language = _bootstrap_failure_language()
     contract = _bootstrap_runtime_contract(minimum_text)
+    script_name = Path(__file__).name
+    recovery_command = {
+        "en": f"Use a Python {minimum_text}+ interpreter to run {script_name} --json",
+        "zh-CN": f"请使用 Python {minimum_text}+ 解释器运行 {script_name} --json",
+    }
+    suggestion = {
+        "en": (
+            "Repair the RecallLoom bootstrap/runtime files or switch to a compatible Python "
+            f"{minimum_text}+ interpreter before retrying."
+        ),
+        "zh-CN": f"请先修复 RecallLoom 的 bootstrap/runtime 文件，或切换到兼容的 Python {minimum_text}+ 解释器后再重试。",
+    }
     return {
         "ok": False,
+        "schema_version": "1.1",
         "blocked": contract["blocked"],
         "blocked_reason": contract["blocked_reason"],
         "recoverability": contract["recoverability"],
         "surface_level": contract["surface_level"],
         "trust_effect": contract["trust_effect"],
+        "failure_stage": "runtime_bootstrap",
         "next_actions": list(contract["next_actions"]),
         "user_message": contract["user_message"][language],
+        "suggestion": suggestion[language],
+        "recovery_command": recovery_command[language],
         "operator_note": contract["operator_note"][language],
         "error": message,
     }
@@ -130,6 +146,8 @@ from _common import (
     load_workspace_state,
     parse_daily_log_entry_line,
     parse_iso_date,
+    public_project_path,
+    public_project_root_label,
     read_text,
     StorageResolutionError,
 )
@@ -257,6 +275,120 @@ def recommended_actions_for_status(
     return actions
 
 
+def _project_relative_path(path: Path, project_root: Path) -> str:
+    return path.relative_to(project_root).as_posix()
+
+
+def _append_unique(items: list[str], value: str | None) -> None:
+    if value and value not in items:
+        items.append(value)
+
+
+def _estimated_tokens_for_files(files: list[str], text_by_path: dict[str, str]) -> int:
+    total = 0
+    for rel_path in files:
+        text = text_by_path.get(rel_path, "")
+        total += max(64, (len(text) + 3) // 4) if text else 64
+    return total
+
+
+def _read_plan_reason(
+    base: str,
+    *,
+    summary_stale: bool,
+    update_protocol_present: bool,
+) -> str:
+    review_notes: list[str] = []
+    if summary_stale:
+        review_notes.append("rolling_summary.md is stale against state.json")
+    if update_protocol_present:
+        review_notes.append("update_protocol.md may narrow project-local constraints")
+    if not review_notes:
+        return base
+    return f"{base} review-before-write: {'; '.join(review_notes)}."
+
+
+def build_status_read_plan(
+    *,
+    project_root: Path,
+    storage_root: Path,
+    state: dict,
+    summary_path: Path,
+    summary_text: str,
+    context_brief_path: Path,
+    context_brief_text: str,
+    update_protocol_path: Path,
+    update_protocol_text: str,
+    latest_daily_log: Path | None,
+    latest_daily_log_text: str,
+    summary_stale: bool,
+    continuity_state: str,
+) -> dict:
+    state_rel = _project_relative_path(storage_root / FILE_KEYS["state"], project_root)
+    summary_rel = _project_relative_path(summary_path, project_root)
+    context_rel = (
+        _project_relative_path(context_brief_path, project_root) if context_brief_path.is_file() else None
+    )
+    update_protocol_rel = (
+        _project_relative_path(update_protocol_path, project_root) if update_protocol_path.is_file() else None
+    )
+    latest_daily_log_rel = (
+        _project_relative_path(latest_daily_log, project_root) if latest_daily_log is not None else None
+    )
+
+    text_by_path = {
+        state_rel: json.dumps(state, ensure_ascii=False, indent=2) + "\n",
+        summary_rel: summary_text,
+    }
+    if context_rel:
+        text_by_path[context_rel] = context_brief_text
+    if update_protocol_rel:
+        text_by_path[update_protocol_rel] = update_protocol_text
+    if latest_daily_log_rel:
+        text_by_path[latest_daily_log_rel] = latest_daily_log_text
+
+    minimal_files = [summary_rel, state_rel]
+    _append_unique(minimal_files, update_protocol_rel)
+
+    standard_files = list(minimal_files)
+    _append_unique(standard_files, context_rel)
+
+    comprehensive_files = list(standard_files)
+    if continuity_state != "initialized_empty_shell":
+        _append_unique(comprehensive_files, latest_daily_log_rel)
+
+    read_plan = {
+        "minimal": {
+            "files": minimal_files,
+            "reason": _read_plan_reason(
+                "Smallest bounded continuity set for current-state orientation.",
+                summary_stale=summary_stale,
+                update_protocol_present=bool(update_protocol_rel),
+            ),
+            "estimated_tokens": _estimated_tokens_for_files(minimal_files, text_by_path),
+        },
+        "standard": {
+            "files": standard_files,
+            "reason": _read_plan_reason(
+                "Default balanced continuity read that adds stable framing when available.",
+                summary_stale=summary_stale,
+                update_protocol_present=bool(update_protocol_rel),
+            ),
+            "estimated_tokens": _estimated_tokens_for_files(standard_files, text_by_path),
+        },
+        "comprehensive": {
+            "files": comprehensive_files,
+            "reason": _read_plan_reason(
+                "Highest-confidence continuity read for evidence-heavy follow-up.",
+                summary_stale=summary_stale,
+                update_protocol_present=bool(update_protocol_rel),
+            ),
+            "estimated_tokens": _estimated_tokens_for_files(comprehensive_files, text_by_path),
+        },
+    }
+    return read_plan
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -331,6 +463,7 @@ def main() -> None:
             payload=cli_failure_payload(
                 "no_project_root",
                 error="No RecallLoom project root found.",
+                details={"project_root": str(Path(args.path).expanduser().resolve())},
                 extra={"continuity_confidence": "broken"},
             ),
         )
@@ -380,9 +513,10 @@ def main() -> None:
 
         context_brief_path = workspace.storage_root / FILE_KEYS["context_brief"]
         update_protocol_path = workspace.storage_root / FILE_KEYS["update_protocol"]
+        context_brief_text = read_text(context_brief_path) if context_brief_path.is_file() else ""
         context_brief_state = None
         if context_brief_path.is_file():
-            context_brief_state = parse_file_state_marker(read_text(context_brief_path))
+            context_brief_state = parse_file_state_marker(context_brief_text)
             if context_brief_state is None:
                 exit_with_cli_error(
                     parser,
@@ -395,9 +529,10 @@ def main() -> None:
                         extra={"continuity_confidence": "broken"},
                     ),
                 )
+        update_protocol_text = read_text(update_protocol_path) if update_protocol_path.is_file() else ""
         update_protocol_state = None
         if update_protocol_path.is_file():
-            update_protocol_state = parse_file_state_marker(read_text(update_protocol_path))
+            update_protocol_state = parse_file_state_marker(update_protocol_text)
             if update_protocol_state is None:
                 exit_with_cli_error(
                     parser,
@@ -412,7 +547,6 @@ def main() -> None:
                 )
 
         summary_text = read_text(summary_path)
-        update_protocol_text = read_text(update_protocol_path) if update_protocol_path.is_file() else ""
         latest_daily_log = latest_active_daily_log(workspace.storage_root / DAILY_LOGS_DIRNAME)
         latest_daily_log_entry = latest_daily_log_entry_info(latest_daily_log)
         latest_daily_log_text = read_text(latest_daily_log) if latest_daily_log is not None else ""
@@ -515,6 +649,33 @@ def main() -> None:
             workspace_newer_than_summary=freshness["workspace_newer_than_summary"],
             conflict_state=None,
         )
+        read_plan = build_status_read_plan(
+            project_root=workspace.project_root,
+            storage_root=workspace.storage_root,
+            state=state,
+            summary_path=summary_path,
+            summary_text=summary_text,
+            context_brief_path=context_brief_path,
+            context_brief_text=context_brief_text,
+            update_protocol_path=update_protocol_path,
+            update_protocol_text=update_protocol_text,
+            latest_daily_log=latest_daily_log,
+            latest_daily_log_text=latest_daily_log_text,
+            summary_stale=summary_stale,
+            continuity_state=continuity_state,
+        )
+        public_project_root = public_project_root_label(workspace.project_root)
+        public_storage_root = public_project_path(workspace.storage_root, project_root=workspace.project_root)
+        public_latest_workspace_artifact = (
+            public_project_path(freshness["latest_workspace_artifact"], project_root=workspace.project_root)
+            if freshness["latest_workspace_artifact"] is not None
+            else None
+        )
+        public_latest_daily_log = (
+            public_project_path(latest_daily_log, project_root=workspace.project_root)
+            if latest_daily_log is not None
+            else None
+        )
     except (OSError, UnicodeDecodeError) as exc:
         message = f"Filesystem error: {exc}"
         exit_with_cli_error(
@@ -530,19 +691,15 @@ def main() -> None:
         )
 
     payload = {
-        "project_root": str(workspace.project_root),
-        "storage_root": str(workspace.storage_root),
+        "project_root": public_project_root,
+        "storage_root": public_storage_root,
         "timezone": zone_label,
         "now": now.isoformat(),
         "workspace_revision": state["workspace_revision"],
         "rolling_summary_revision": summary_state.revision,
         "workspace_artifact_scan_mode": freshness["workspace_artifact_scan_mode"],
         "workspace_artifact_scan_performed": freshness["workspace_artifact_scan_performed"],
-        "latest_workspace_artifact": (
-            str(freshness["latest_workspace_artifact"])
-            if freshness["latest_workspace_artifact"] is not None
-            else None
-        ),
+        "latest_workspace_artifact": public_latest_workspace_artifact,
         "workspace_artifact_newer_than_summary": freshness["workspace_artifact_newer_than_summary"],
         "summary_revision_stale": freshness["summary_revision_stale"],
         "workspace_newer_than_summary": freshness["workspace_newer_than_summary"],
@@ -560,15 +717,17 @@ def main() -> None:
         "latest_relevant_log_digest": digests["latest_relevant_log_digest"],
         "suggested_handoff_sections": digests["suggested_handoff_sections"],
         "recommended_actions": actions,
-        "latest_active_daily_log": str(latest_daily_log) if latest_daily_log else None,
+        "read_plan": read_plan,
+        "estimated_tokens": read_plan["standard"]["estimated_tokens"],
+        "latest_active_daily_log": public_latest_daily_log,
         "continuity_snapshot": {
-            "project_root": str(workspace.project_root),
-            "storage_root": str(workspace.storage_root),
+            "project_root": public_project_root,
+            "storage_root": public_storage_root,
             "workspace_revision_seen": state["workspace_revision"],
             "rolling_summary_revision_seen": summary_state.revision,
             "context_brief_revision_seen": context_brief_state.revision if context_brief_state else None,
             "update_protocol_revision_seen": update_protocol_state.revision if update_protocol_state else None,
-            "latest_active_daily_log_seen": str(latest_daily_log) if latest_daily_log else None,
+            "latest_active_daily_log_seen": public_latest_daily_log,
             "latest_active_daily_log_entry_seq_seen": (
                 latest_daily_log_entry.entry_seq if latest_daily_log_entry is not None else None
             ),

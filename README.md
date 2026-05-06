@@ -6,7 +6,7 @@
 
 **Built for projects that keep moving across agents, sessions, and models.**
 
-[![Version](https://img.shields.io/badge/version-v0.3.4-6b7280)](./skills/recallloom/package-metadata.json)
+[![Version](https://img.shields.io/badge/version-v0.3.5-6b7280)](./skills/recallloom/package-metadata.json)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776AB)](./skills/recallloom/package-metadata.json)
 
@@ -18,7 +18,7 @@
   <img src="./docs/images/readme-topbanner.en.png" alt="RecallLoom top banner" />
 </p>
 
-If every time you switch to a new `Claude Code`, `Codex`, `Gemini CLI`, or fresh agent you spend ten minutes re-explaining the project, what is usually missing is not a smarter model. It is a layer of project continuity that does not disappear.
+If every time you switch to a supported coding agent, directory-based tool, or fresh session you spend ten minutes re-explaining the project, what is usually missing is not a smarter model. It is a layer of project continuity that does not disappear.
 
 RecallLoom keeps the project's why, what is true now, recent progress, and next move with the project itself instead of locking them inside one platform's private memory. It is not another dashboard, not a platform-bound memory silo, and not a black box that silently understands the whole repo for you. Its job is narrower: keep the project reality worth carrying forward inside the workspace so the next session can pick up where the last one left off.
 
@@ -65,7 +65,7 @@ During initialization, restore, and writes, RecallLoom first checks whether the 
 RecallLoom is strongest for:
 
 - **People already using AI inside real projects**: especially solo builders and very small teams who keep handing the same project between different sessions, models, and agents.
-- **People who regularly switch between tools like `Claude Code`, `Codex`, and `Gemini CLI`**: and do not want to re-explain the project every time.
+- **People who regularly switch between supported coding agents and directory-based tools**: and do not want to re-explain the project every time.
 - **Research writing, product docs, and software coordination work**: the kind of work where project intent, decisions, progress, and next steps are easy to lose.
 
 Typical high-value moments include:
@@ -144,7 +144,7 @@ PROJECT_ROOT/
 <a id="quick-start"></a>
 ## 🚀 Quick Start
 
-On a first attach, you do not need to start from an internal command. Four steps are enough:
+On a first attach, you do not need to start from a special command. Four steps are enough:
 
 1. Install the skill locally.
 2. Explicitly invoke RecallLoom once in the conversation.
@@ -160,6 +160,8 @@ If your environment supports a Skills CLI such as [skills.sh](https://skills.sh/
 ```bash
 npx skills add https://github.com/Frappucc1no/recall-loom --skill recallloom
 ```
+
+v0.3.5 makes project resume faster, progress capture more structured, and managed updates easier to preview before they are applied.
 
 When you need to update installed skills later, use:
 
@@ -214,6 +216,10 @@ After a project is initialized, you can simply say `continue this project`, `res
 
 If your tool exposes stable action names, you can also use `rl-resume` to trigger restore directly. Most of the time, natural language is enough.
 
+Generic prompts like `continue this project` only route directly when the host/router honors the RecallLoom restore contract. If your host does not give RecallLoom that first hop, explicitly invoke the skill once or use `rl-resume`.
+
+The more operator-oriented surface lives behind the same dispatcher: `quick-summary` for a low-latency restore snapshot, `append --entry-json` for structured daily-log appends, and `write --type ... --dry-run` for previewing safe managed writes before applying them. These are optional adoption paths for existing `v0.3.4` projects; the sidecar protocol stays `1.0`.
+
 For a more operator-oriented view of command entrypoints and helper flow, see [USAGE.md](./USAGE.md).
 
 ## 📦 Package Structure
@@ -224,6 +230,7 @@ For a more operator-oriented view of command entrypoints and helper flow, see [U
 ```text
 recallloom/
 ├── SKILL.md
+├── managed-assets.json
 ├── profiles/
 ├── references/
 ├── scripts/
@@ -235,6 +242,7 @@ recallloom/
 | Part | Role |
 |---|---|
 | `SKILL.md` | Main entry file read by AI tools |
+| `managed-assets.json` | Required managed-asset registry used by packaged helpers |
 | `profiles/` | Default modes for different project shapes |
 | `references/` | Protocol details, file contracts, and operating notes |
 | `scripts/` | Helper scripts for the unified entrypoint, init, validation, status, bridge, and guarded writes |
@@ -249,13 +257,23 @@ recallloom/
 ### Version Info
 
 <!-- RecallLoom metadata sync start: package-metadata -->
-- package version: `0.3.4`
+- package version: `0.3.5`
 - protocol version: `1.0`
 - supported protocol versions:
   - `1.0`
 <!-- RecallLoom metadata sync end: package-metadata -->
 
 ### Release Notes
+
+<details>
+  <summary><strong>v0.3.5</strong></summary>
+
+- Resume existing projects faster with a compact current-state snapshot before deeper reading is needed.
+- Capture milestone progress through structured appends that keep daily-log entries ordered within each file.
+- Preview managed updates before applying them, so background, current-state, and daily-log writes stay deliberate.
+- Upgrade existing RecallLoom projects without a sidecar migration; protocol compatibility remains `1.0`.
+
+</details>
 
 <details>
   <summary><strong>v0.3.4</strong></summary>
@@ -358,7 +376,7 @@ recallloom/
 |---|---|---|
 | Skills CLI ecosystem | Install with `npx skills add ... --skill recallloom`; update with `npx skills update` | You want one standard skill install and update flow |
 | Codex | Install into `.agents/skills/recallloom` | You want long-running project work inside a repo |
-| Claude Code | Install into `~/.claude/skills/recallloom` or `.claude/skills/recallloom` | You want user-level or project-level installation |
+| Supported directory-based coding agents | Install the whole directory into the agent's skills folder | You want user-level or project-level installation |
 | Other directory-based tools | Install the whole directory into that tool's skills folder | You want to reuse the same continuity files across tools |
 
 </details>

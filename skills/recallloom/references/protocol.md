@@ -9,6 +9,7 @@
 - Update Discipline
 - Progressive Disclosure
 - Machine-Readable Contract
+- Helper Output Contracts
 - Validator Semantics
 - Managed Bridge And Exclude Blocks
 - Versioning
@@ -84,6 +85,10 @@ For protocol `1.0`, each daily log also carries required entry metadata that ide
 An initialization helper may optionally create an empty daily-log scaffold for the current day.
 That scaffold is still only a starting structure, not proof that a milestone already occurred.
 When a scaffold exists, the first real append still becomes `entry-1`.
+
+For the current package line on protocol `1.0`, daily-log entry sequencing is file-local.
+Each daily log starts real entries at `entry-seq=1`, helper-generated canonical `entry-id` is `entry-{entry_seq}`, and duplicate ids such as `entry-1` across different historical daily log files are normal.
+These ids are not promised to be cross-file globally unique.
 
 ## Storage Resolution
 
@@ -390,6 +395,8 @@ It uses this shape:
 
 - a daily log may contain multiple milestone entry blocks
 - each appended entry begins with its own `daily-log-entry` marker
+- `entry-seq` is the file-local contiguous sequence number for that daily log file
+- helper-generated canonical `entry-id` is `entry-{entry_seq}` and is not a cross-file global id
 - append-only means adding a new entry block rather than rewriting prior entry blocks in place
 
 ### Daily-log scaffold marker
@@ -413,6 +420,16 @@ For protocol `1.0`:
 - helper-generated files place the first entry marker immediately after the file marker
 - third-party writers should follow that placement for the first entry marker
 - readers identify the latest entry by scanning the whole log, not by assuming a fixed line number
+- validators should warn on noncanonical daily-log ids with `noncanonical_daily_log_entry_id` instead of treating them as helper-generated canonical ids
+
+### Daily-log state cursor
+
+For protocol `1.0`, `state.json.daily_logs` describes the latest active daily log file only.
+
+- `latest_entry_seq` is the latest file-local `entry-seq` value in the latest active daily log.
+- `latest_entry_id` is the matching marker id from that same entry.
+- `entry_count` keeps its existing field name and means the number of entry markers in that latest active daily log file.
+- `entry_count` is not a global cumulative count across `daily_logs/`, and protocol `1.0` does not rename it to `latest_file_entry_count`.
 
 ### Rolling summary metadata marker
 
@@ -492,6 +509,41 @@ This allows RecallLoom to support:
 - stable third-party integrations
 - future renderer evolution without breaking the core contract
 
+## Helper Output Contracts
+
+RecallLoom also ships structured JSON helper and dispatcher outputs.
+
+These outputs are a separate contract layer from the sidecar file protocol.
+They are not persisted into `STORAGE_ROOT/`, and they do not by themselves
+upgrade `config.json.protocol_version` or any managed-file marker version.
+
+Current contract distinction:
+
+- sidecar `protocol_version` remains `1.0`
+- helper and dispatcher JSON surfaces may independently declare
+  `schema_version: "1.1"`
+
+Helper schema `1.1` intent:
+
+- define stable field names and meanings for structured guidance and bounded
+  read planning
+- allow helper surfaces to add new optional fields without changing sidecar
+  validator behavior
+- keep existing stable JSON consumers compatible across the current `1.x`
+  helper-contract line
+
+Compatibility rules for helper schema `1.1`:
+
+- additions must be additive and optional unless a surface already documented
+  them as required
+- existing consumers may ignore unknown helper-output fields
+- existing documented required JSON fields on stable helper surfaces must not
+  be deleted or renamed within the current helper schema `1.x` line
+
+See `references/file-contracts.md` for the field-level semantics of helper
+schema `1.1`, including `next_actions`, `suggestion`,
+`recovery_command`, `read_plan`, and `estimated_tokens`.
+
 ## Validator Semantics
 
 For protocol `1.0`, validator behavior is deterministic and marker-driven.
@@ -504,6 +556,9 @@ Expected semantic checks include:
 - storage declaration mismatches should be surfaced explicitly
 - malformed bridge or exclude managed blocks should be surfaced explicitly
 - missing required file-state or daily-log-entry metadata should be surfaced explicitly
+- daily-log `entry-seq` values that are not file-local contiguous `1..N` should be surfaced with `invalid_daily_log_entry_sequence`
+- `state.json.daily_logs.entry_count` mismatches against the latest active daily log's entry marker count should be surfaced with `daily_log_entry_count_mismatch`
+- helper-noncanonical daily-log ids should be warnings, not silently normalized into canonical status
 
 ## Managed Bridge And Exclude Blocks
 
@@ -572,4 +627,5 @@ Validator behavior for protocol `1.0`:
 Compatibility intent:
 
 - keep the core file model stable across protocol `1.0` workspaces
+- keep helper output schema evolution separate from sidecar protocol evolution
 - evolve details through package revisions without weakening the current validator-visible contract
